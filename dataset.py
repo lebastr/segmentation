@@ -10,6 +10,8 @@ from matplotlib.collections import PolyCollection
 import PIL
 from PIL import ImageDraw
 
+import json
+
 ChannelMUL = "MUL"
 ChannelMUL_PanSharpen = "MUL-PanSharpen"
 ChannelPAN = "PAN"
@@ -35,6 +37,14 @@ def resample(X, new_size):
 
     return X_new    
 
+def rotate_and_translate(X, angle, translate=None):
+    X_new = np.empty(X.shape)
+    for j in range(X.shape[2]):
+        img = PIL.Image.fromarray(X[:,:,j]).rotate(angle, translate=translate)
+        X_new[:,:,j] = np.array(img)
+
+    return X_new    
+    
 
 class Image(object):
     def __init__(self, data_dir, image_id):
@@ -64,7 +74,7 @@ class Image(object):
             ch_psums.append(ch_psums[-1] + img.shape[2])
             imgs.append(img)
         
-        image = np.zeros((image_size[0], image_size[1], ch_psums[-1]))
+        image = np.zeros((image_size[0], image_size[1], ch_psums[-1]), dtype='float32')
         for i in range(len(imgs)):
             image[:,:,ch_psums[i]:ch_psums[i+1]] = imgs[i]
         
@@ -75,7 +85,7 @@ class Image(object):
         img = np.uint8(256 * np.float32(img) / img.max())
         
         if ax is None:
-            fig, ax = plt.subplots(figsize=(10,10))
+            fig, ax = plt.subplots()
         
         ax.imshow(img, alpha=1.0)
         
@@ -84,22 +94,26 @@ class ImageWithBuildings(Image):
         super(ImageWithBuildings, self).__init__(data_dir, image_id)
         self.buildings = buildings
         
-    def get_mask(self, image_size=None):
+    def get_mask(self, image_size=None, only_border=False):
         poly = PIL.Image.new('L', IMAGE_SIZE)
         pdraw = ImageDraw.Draw(poly)
         for p_out, p_in in [(b.outer_poly, b.inner_poly) for b in self.buildings]:
-            pdraw.polygon(map(tuple, p_out), fill=1,outline=1)
+            if only_border:
+                pdraw.line(map(tuple, p_out), fill=1, width=5)
+            else:
+                pdraw.polygon(map(tuple, p_out), fill=1,outline=0)
+                
             if len(p_in) != 0:
                 pdraw.polygon(map(tuple, p_in), fill=0,outline=0)
 
         if image_size is not None:
             poly = poly.resize(image_size, resample=PIL.Image.BILINEAR)
 
-        return np.array(poly, dtype='uint16')
+        return np.array(poly, dtype='float32')
     
     def draw(self, ax=None, withbuildings=True):
         if ax is None:
-            fig, ax = plt.subplots(figsize=(10,10))
+            fig, ax = plt.subplots()
         
         super(ImageWithBuildings, self).draw(ax)
         if withbuildings:
@@ -129,12 +143,24 @@ def parse_csv(fname):
         csv.append(row)
     return csv
 
+def load_data_set_from_dumps(strjson):
+    js = json.loads(strjson)
+    return DataSet(js['data_dir'], js['channels'], image_size = js['image_size'], only_border=js['only_border'])
+
 class DataSet(object):
-    def __init__(self, data_dir, channels, image_size=None):
+    def __init__(self, data_dir, channels, image_size=None, only_border=False):
         self.data_dir = data_dir
         self.channels = channels
         self.image_size = image_size
+        self.only_border = only_border
+        self.load()
         
+    def dumps(self):
+        return json.dumps({'data_dir' : self.data_dir,
+                           'channels' : self.channels,
+                           'image_size' : self.image_size,
+                           'only_border' : self.only_border})
+
     def image_ids(self):
         return self.images.keys()
 
@@ -142,7 +168,7 @@ class DataSet(object):
         return self.images[image_id].get_ndarray(self.channels, self.image_size)
 
     def get_mask(self, image_id):
-        return self.images[image_id].get_mask(self.image_size)
+        return self.images[image_id].get_mask(self.image_size, only_border=self.only_border)
 
     def draw(self, image_id, ax=None, withbuildings = True):
         self.images[image_id].draw(ax=ax, withbuildings=withbuildings)
