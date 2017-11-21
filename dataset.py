@@ -11,6 +11,7 @@ import PIL
 from PIL import ImageDraw
 
 import json
+import random
 
 ChannelMUL = "MUL"
 ChannelMUL_PanSharpen = "MUL-PanSharpen"
@@ -203,4 +204,24 @@ class DataSet(object):
 
         self.shape = self.get_ndarray(self.image_ids()[0]).shape
 
+        # load test and train
+        train_test_path = self.data_dir + "/train_test.json"
+        if not os.path.exists(train_test_path):
+            print("Create train and test datasets...")
+            self.__split_on_train_test__(train_test_path)
+
+        self.train_ids, self.test_ids = self.__load_train_test__(train_test_path)
+        
         return images.keys()
+
+    def __load_train_test__(self, path):
+        d = json.load(open(path, "r"))
+        return d['train'], d['test']
+        
+    def __split_on_train_test__(self, path):
+        image_ids = self.image_ids()
+        random.shuffle(image_ids)
+        split_point = len(image_ids)*7 // 10
+        train_ids = image_ids[:split_point]
+        test_ids = image_ids[split_point:]
+        json.dump({'train' : train_ids, 'test' : test_ids}, open(path, "w"))
