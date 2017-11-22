@@ -70,6 +70,8 @@ class VGGUnetModel(Model):
             return x
 
         def conv_concate_block(name, n_filter, x, y):
+            x = BatchNormalization(name=name+"batch_norm_x")(x)
+            y = BatchNormalization(name=name+"batch_norm_y")(y)
             x = two_conv2d(name + "two_conv_block", n_filter, n_filter // 2, x)
             return Concatenate()([UpSampling2D(size=(2, 2))(x), y])
 
