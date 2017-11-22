@@ -86,7 +86,7 @@ class VGGUnetModel(Model):
         x = conv_concate_block("cc4", 128, x, b1)
 
         x = two_conv2d("last_conv_block", 64, 64, x)
-        x = Conv2D(labels, (1, 1), activation='softmax', padding='same', name="sigmoid_conv")(x)
+        x = Conv2D(1, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
 
         self.vgg_layers = [vgg.layers[i] for i in range(1, 14)]
 
