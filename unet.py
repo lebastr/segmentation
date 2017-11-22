@@ -119,7 +119,7 @@ class VGGUnetModel(Model):
 
         x = two_conv2d("last_conv_block", 64, 64, x)
 
-        x = Conv2D(labels, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
+        x = Conv2D(1, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
 
         super(VGGUnetModel, self).__init__(inputs=input_img, outputs=x, name='vgg-unet')
         self.vgg_layers = [self.layers[i] for i in range(2,15)]
