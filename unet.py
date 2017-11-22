@@ -118,6 +118,7 @@ class VGGUnetModel(Model):
         x = conv_concate_block("cc4", 128, x, vgg_pipe['b1'])
 
         x = two_conv2d("last_conv_block", 64, 64, x)
+
         x = Conv2D(labels, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
 
         super(VGGUnetModel, self).__init__(inputs=input_img, outputs=x, name='vgg-unet')
