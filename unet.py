@@ -1,7 +1,7 @@
 import numpy as np
 from keras.models import Model
 from keras.layers import (Input, Conv2D, MaxPooling2D, UpSampling2D, Activation, Reshape,
-                          BatchNormalization, Concatenate)
+                          BatchNormalization, Concatenate, Cropping2D)
 
 import keras.applications.vgg16
 
@@ -29,6 +29,7 @@ def make_conv_block(nb_filters, input_tensor, block):
 class UnetModel(Model):
     def __init__(self, input_shape):
         self.u_history = []
+
         
         inputs = Input(input_shape)
         conv1 = make_conv_block(32, inputs, 1)
@@ -60,7 +61,8 @@ class UnetModel(Model):
         conv10 = Conv2D(1, (1, 1), activation='sigmoid', name='conv_10_1')(conv9)
     
         super(UnetModel, self).__init__(inputs=inputs, outputs=conv10, name='unet')
-#        self.compile(optimizer=Adam(lr=1e-4), loss='binary_crossentropy')
+        self.net_description = { 'name': self.name, 'input_shape': self.input_shape,
+                                 'output_shape': self.output_shape }
 
 def create_VGG16_conv_pipe(img_input):
     # Block 1
@@ -127,6 +129,87 @@ class VGGUnetModel(Model):
     def __init__(self):
         self.u_history = []
         self.__init_vgg_unet__()
+        self.net_description = { 'name': self.name, 'input_shape': self.input_shape,
+                                 'output_shape': self.output_shape }
+
+    def load_vgg_weights(self):
+        vgg = keras.applications.vgg16.VGG16(include_top=False, weights='imagenet', input_tensor=None,
+                                             input_shape=None, pooling=None, classes=1000)
+
+        for i, layer in enumerate(vgg.layers[1:14]):
+            self.vgg_layers[i].set_weights(layer.get_weights())
+
+
+def create_VGG16_conv_pipe_zero_padding(img_input):
+    # Block 1
+    net = {}
+
+    x = Conv2D(64, (3, 3), activation='relu', padding='valid', name='block1_conv1')(img_input)
+    x = Conv2D(64, (3, 3), activation='relu', padding='valid', name='block1_conv2')(x)
+    net['b1'] = x
+    x = MaxPooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
+
+    # Block 2
+    x = Conv2D(128, (3, 3), activation='relu', padding='valid', name='block2_conv1')(x)
+    x = Conv2D(128, (3, 3), activation='relu', padding='valid', name='block2_conv2')(x)
+    net['b2'] = x
+    x = MaxPooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
+
+    # Block 3
+    x = Conv2D(256, (3, 3), activation='relu', padding='valid', name='block3_conv1')(x)
+    x = Conv2D(256, (3, 3), activation='relu', padding='valid', name='block3_conv2')(x)
+    x = Conv2D(256, (3, 3), activation='relu', padding='valid', name='block3_conv3')(x)
+    net['b3'] = x
+    x = MaxPooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
+
+    # Block 4
+    x = Conv2D(512, (3, 3), activation='relu', padding='valid', name='block4_conv1')(x)
+    x = Conv2D(512, (3, 3), activation='relu', padding='valid', name='block4_conv2')(x)
+    x = Conv2D(512, (3, 3), activation='relu', padding='valid', name='block4_conv3')(x)
+    net['b4'] = x
+    x = MaxPooling2D((2, 2), strides=(2, 2), name='block4_pool')(x)
+    net['to-unet'] = x
+    return net
+
+class VGGUnetModelWithCrop(Model):
+    def __init_vgg_unet__(self):
+        def two_conv2d(name, n_filter1, n_filter2, x):
+            x = Conv2D(n_filter1, (3, 3), activation='relu', padding='valid', name=name + "_1")(x)
+            x = Conv2D(n_filter2, (3, 3), activation='relu', padding='valid', name=name + "_2")(x)
+            return x
+
+        def conv_concate_block(name, n_filter, x, y):
+            x = BatchNormalization(name=name+"batch_norm_x")(x)
+            y = BatchNormalization(name=name+"batch_norm_y")(y)
+            x = two_conv2d(name + "two_conv_block", n_filter, n_filter // 2, x)
+            return Concatenate()([UpSampling2D(size=(2, 2))(x), y])
+
+        #vgg = keras.applications.vgg16.VGG16(include_top=True, weights='imagenet', input_tensor=None,
+        #                                     input_shape=None, pooling=None, classes=1000)
+
+        input_size = 16*self.N + 4
+
+        input_img = Input(shape=(input_size, input_size, 3))
+        vgg_pipe = create_VGG16_conv_pipe_zero_padding(BatchNormalization(name="input_batch_norm")(input_img))
+
+        x = conv_concate_block("cc1", 1024, vgg_pipe['to-unet'], Cropping2D(4)(vgg_pipe['b4']))
+        x = conv_concate_block("cc2", 512, x, Cropping2D(18)(vgg_pipe['b3']))
+        x = conv_concate_block("cc3", 256, x, Cropping2D(46)(vgg_pipe['b2']))
+        x = conv_concate_block("cc4", 128, x, Cropping2D(100)(vgg_pipe['b1']))
+
+        x = two_conv2d("last_conv_block", 64, 64, x)
+
+        x = Conv2D(1, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
+
+        super(VGGUnetModelWithCrop, self).__init__(inputs=input_img, outputs=x, name='vgg-unet-with-crop')
+        self.vgg_layers = [self.layers[i] for i in range(2,15)]
+
+    def __init__(self, N=32):
+        self.u_history = []
+        self.N = N
+        self.__init_vgg_unet__()
+        self.net_description = { 'name': self.name, 'input_shape': self.input_shape,
+                                 'output_shape': self.output_shape, 'N': self.N }
 
     def load_vgg_weights(self):
         vgg = keras.applications.vgg16.VGG16(include_top=False, weights='imagenet', input_tensor=None,

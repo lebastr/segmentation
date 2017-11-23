@@ -146,30 +146,45 @@ def parse_csv(fname):
 
 def load_data_set_from_dumps(strjson):
     js = json.loads(strjson)
-    return DataSet(js['data_dir'], js['channels'], image_size = js['image_size'], only_border=js['only_border'])
+    if js.has_key('input_shape'):
+        input_shape = js['input_shape']
+        output_shape = js['output_shape']
+    else:
+        input_shape = js['image_size']
+        output_shape = None
+
+    return DataSet(js['data_dir'], js['channels'], input_shape = js['input_shape'],
+                       output_shape = js['output_shape'], only_border=js['only_border'])
 
 class DataSet(object):
-    def __init__(self, data_dir, channels, image_size=None, only_border=False):
+    def __init__(self, data_dir, channels, input_shape=None, output_shape=None, only_border=False):
         self.data_dir = data_dir
         self.channels = channels
-        self.image_size = image_size
+        self.input_shape = input_shape
+
+        if output_shape is None:
+            self.output_shape = self.input_shape
+        else:
+            self.output_shape = output_shape
+
         self.only_border = only_border
         self.load()
         
     def dumps(self):
         return json.dumps({'data_dir' : self.data_dir,
                            'channels' : self.channels,
-                           'image_size' : self.image_size,
+                           'input_shape' : self.input_shape,
+                           'output_shape': self.output_shape,
                            'only_border' : self.only_border})
 
     def image_ids(self):
         return self.images.keys()
 
     def get_ndarray(self, image_id):
-        return self.images[image_id].get_ndarray(self.channels, self.image_size)
+        return self.images[image_id].get_ndarray(self.channels, self.input_shape)
 
     def get_mask(self, image_id):
-        return self.images[image_id].get_mask(self.image_size, only_border=self.only_border)
+        return self.images[image_id].get_mask(self.output_shape, only_border=self.only_border)
 
     def draw(self, image_id, ax=None, withbuildings = True):
         self.images[image_id].draw(ax=ax, withbuildings=withbuildings)

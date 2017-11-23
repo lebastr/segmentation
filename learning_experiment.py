@@ -34,7 +34,10 @@ class LearningExperiment(object):
     def __init__(self, path):
         self.path = path
         self.description = open(self.path + "/description.txt", 'r').read()
-        
+        self.__model_dir__ = self.path + "/model"
+        self.__model_history_path__ = self.__model_dir__ + "/history.json"
+        self.__model_description_path__ = self.__model_dir__ + "/description.json"
+
         data_set_path = self.path + "/data_set.json"
         if os.path.exists(data_set_path):
             self.data_set = dataset.load_data_set_from_dumps(open(data_set_path, 'r').read())
@@ -44,30 +47,50 @@ class LearningExperiment(object):
     def epochs(self):
         return sorted([int(x) for x in os.listdir(self.path + '/model') if re.match(r'^\d+$', x)])
     
-    def load_net(self, epoch = None, input_shape=None):
-        if input_shape is None:
-            assert self.data_set is not None, "Pass explicit input_shape!"
-            input_shape = self.data_set.shape
-            
-        net = unet.UnetModel(input_shape)
+    def load_net(self, epoch = None, input_shape = None):
+        if os.path.exists(self.__model_description_path__):
+            net_description = json.load(open(self.__model_description_path__, 'r'))
+        else:
+            net_description = None
+
+        if net_description is not None:
+            name = net_description['name']
+            if name == 'unet':
+                a, b, c, d = net_description['input_shape']
+                net = unet.UnetModel((b,c,d))
+
+            elif name == 'vgg-unet':
+                net = unet.VGGUnetModel()
+            elif name == 'vgg-unet-with-crop':
+                net = unet.VGGUnetModelWithCrop(net_description['N'])
+            else:
+                raise "Unknown net name!"
+
+        else:
+            if input_shape is None:
+                assert self.data_set is not None, "Pass explicit input_shape!"
+                input_shape = self.data_set.shape
+
+            net = unet.UnetModel(input_shape)
+
         if epoch is None:
             epoch = self.epochs()[-1]
             
-        net.load_weights(self.path + '/model/%d' % epoch)
+        net.load_weights(self.__model_dir__ + '/%d' % epoch)
         net.u_history = self.loss_history()
         
         return net
     
     def loss_history(self):
-        return json.load(open(self.path + '/model/history.json', 'r'))
+        return json.load(open(self.__model_history_path__, 'r'))
         
     def save(self, net, fname):
-        persistent_dir = self.path + "/model"
-        if not os.path.exists(persistent_dir):
-            os.mkdir(persistent_dir)
+        if not os.path.exists(self.__model_dir__):
+            os.mkdir(self.__model_dir__)
 
-        json.dump(net.u_history, open(persistent_dir + "/history.json", "w"))
-        net.save(persistent_dir + "/" + fname)
+        json.dump(net.net_description, open(self.__model_description_path__, 'w'))
+        json.dump(net.u_history, open(self.__model_history_path__, "w"))
+        net.save(self.__model_dir__ + "/" + fname)
 
     def train(self, net, batch_generator, epochs=10, batch_size=10):
         for _ in range(epochs):
