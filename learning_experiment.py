@@ -56,17 +56,18 @@ class LearningExperiment(object):
         if net_description is not None:
             name = net_description['name']
             if name == 'unet':
-                a, b, c, d = net_description['input_shape']
-                net = unet.UnetModel((b,c,d))
+                net = unet.UnetModel(net_description['input_shape'])
 
             elif name == 'vgg-unet':
                 net = unet.VGGUnetModel()
+
             elif name == 'vgg-unet-with-crop':
                 net = unet.VGGUnetModelWithCrop(net_description['N'])
+
             else:
                 raise "Unknown net name!"
 
-        else:
+        else: # old UnetModel experiment
             if input_shape is None:
                 assert self.data_set is not None, "Pass explicit input_shape!"
                 input_shape = self.data_set.shape
@@ -110,13 +111,16 @@ class LearningExperiment(object):
             self.save(net, "%d" % epoch)
 
 class BatchGenerator(object):
-    def __init__(self, data_set, ids, shuffle=True, shuffle_on_each_epoch=False, random_rotate=False, random_translate=False):
+    def __init__(self, data_set, ids, shuffle=True, shuffle_on_each_epoch=False, random_rotate=False,
+                 random_translate=False, crop_mask=0):
+
         self.ids = copy.copy(ids)
         self.data_set = data_set
         self.random_rotate = random_rotate
         self.random_translate = random_translate
         self.shuffle_on_each_epoch = shuffle_on_each_epoch
-        
+        self.crop_mask = crop_mask
+
         (h,w,d) = data_set.get_ndarray(self.ids[0]).shape
         self.image_size = (h,w)
         self.n_channels = d
@@ -139,14 +143,21 @@ class BatchGenerator(object):
             else:
                 xt = 0
                 yt = 0
-                
-            def transformation(X):
-                if self.random_rotate or self.random_translate:
-                    return dataset.rotate_and_translate(X, angle, translate=(xt, yt))
-                else:
-                    return X
-            return transformation
 
+            def transformation(crop = 0):
+                def g(a,b):
+                    return lambda x: b(a, x)
+
+                transform = lambda i: i
+                if self.random_rotate or self.random_translate:
+                    transform = g(transform, lambda t,i: t(i).rotate(angle, translate=(xt, yt)))
+
+                if crop > 0:
+                    transform = g(transform, lambda t,i: t(i).crop((crop,crop, i.height-crop, i.width-crop)))
+
+                return transform
+
+            return transformation
 
         if self.shuffle_on_each_epoch:
             random.shuffle(self.ids)
@@ -157,8 +168,9 @@ class BatchGenerator(object):
             Ys = []
             for img_id in ids:
                 transformation = make_transformation()
-                Xs.append(transformation(self.data_set.get_ndarray(img_id)))
-                Ys.append(transformation(self.data_set.get_mask(img_id)[:,:,None]))
+                Xs.append(dataset.apply_pil_transform(transformation(), self.data_set.get_ndarray(img_id)))
+                Ys.append(dataset.apply_pil_transform(transformation(crop = self.crop_mask),
+                                                      (self.data_set.get_mask(img_id)[:,:,None])))
 
             Xs = np.array(Xs)
             Ys = np.array(Ys)

@@ -12,6 +12,13 @@ import copy
 import os
 import json
 
+class MiddleModel(Model):
+    def __init__(self, **kwargs):
+        super(MiddleModel, self).__init__(**kwargs)
+        self.u_history = []
+        self.net_description = {'name': self.name, 'input_shape': self.input_shape[1:],
+                                'output_shape': self.output_shape[1:]}
+
 def make_conv_block(nb_filters, input_tensor, block):
     def make_stage(input_tensor, stage):
         name = 'conv_{}_{}'.format(block, stage)
@@ -26,11 +33,9 @@ def make_conv_block(nb_filters, input_tensor, block):
     x = make_stage(x, 2)
     return x
 
-class UnetModel(Model):
+class UnetModel(MiddleModel):
     def __init__(self, input_shape):
-        self.u_history = []
 
-        
         inputs = Input(input_shape)
         conv1 = make_conv_block(32, inputs, 1)
         pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
@@ -61,8 +66,6 @@ class UnetModel(Model):
         conv10 = Conv2D(1, (1, 1), activation='sigmoid', name='conv_10_1')(conv9)
     
         super(UnetModel, self).__init__(inputs=inputs, outputs=conv10, name='unet')
-        self.net_description = { 'name': self.name, 'input_shape': self.input_shape,
-                                 'output_shape': self.output_shape }
 
 def create_VGG16_conv_pipe(img_input):
     # Block 1
@@ -95,7 +98,7 @@ def create_VGG16_conv_pipe(img_input):
     net['to-unet'] = x
     return net
 
-class VGGUnetModel(Model):
+class VGGUnetModel(MiddleModel):
     def __init_vgg_unet__(self, labels=2):
         def two_conv2d(name, n_filter1, n_filter2, x):
             x = Conv2D(n_filter1, (3, 3), activation='relu', padding='same', name=name + "_1")(x)
@@ -107,9 +110,6 @@ class VGGUnetModel(Model):
             y = BatchNormalization(name=name+"batch_norm_y")(y)
             x = two_conv2d(name + "two_conv_block", n_filter, n_filter // 2, x)
             return Concatenate()([UpSampling2D(size=(2, 2))(x), y])
-
-        #vgg = keras.applications.vgg16.VGG16(include_top=True, weights='imagenet', input_tensor=None,
-        #                                     input_shape=None, pooling=None, classes=1000)
 
         input_img = Input(shape=(224, 224, 3))
         vgg_pipe = create_VGG16_conv_pipe(BatchNormalization(name="input_batch_norm")(input_img))
@@ -123,14 +123,12 @@ class VGGUnetModel(Model):
 
         x = Conv2D(1, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
 
-        super(VGGUnetModel, self).__init__(inputs=input_img, outputs=x, name='vgg-unet')
-        self.vgg_layers = [self.layers[i] for i in range(2,15)]
+        return input_img, x
 
     def __init__(self):
-        self.u_history = []
-        self.__init_vgg_unet__()
-        self.net_description = { 'name': self.name, 'input_shape': self.input_shape,
-                                 'output_shape': self.output_shape }
+        input, output = self.__init_vgg_unet__()
+        super(VGGUnetModel, self).__init__(inputs=input, outputs=output, name='vgg-unet')
+        self.vgg_layers = [self.layers[i] for i in range(2, 15)]
 
     def load_vgg_weights(self):
         vgg = keras.applications.vgg16.VGG16(include_top=False, weights='imagenet', input_tensor=None,
@@ -171,7 +169,7 @@ def create_VGG16_conv_pipe_zero_padding(img_input):
     net['to-unet'] = x
     return net
 
-class VGGUnetModelWithCrop(Model):
+class VGGUnetModelWithCrop(MiddleModel):
     def __init_vgg_unet__(self):
         def two_conv2d(name, n_filter1, n_filter2, x):
             x = Conv2D(n_filter1, (3, 3), activation='relu', padding='valid', name=name + "_1")(x)
@@ -183,9 +181,6 @@ class VGGUnetModelWithCrop(Model):
             y = BatchNormalization(name=name+"batch_norm_y")(y)
             x = two_conv2d(name + "two_conv_block", n_filter, n_filter // 2, x)
             return Concatenate()([UpSampling2D(size=(2, 2))(x), y])
-
-        #vgg = keras.applications.vgg16.VGG16(include_top=True, weights='imagenet', input_tensor=None,
-        #                                     input_shape=None, pooling=None, classes=1000)
 
         input_size = 16*self.N + 4
 
@@ -201,15 +196,15 @@ class VGGUnetModelWithCrop(Model):
 
         x = Conv2D(1, (1, 1), activation='sigmoid', padding='same', name="sigmoid_conv")(x)
 
-        super(VGGUnetModelWithCrop, self).__init__(inputs=input_img, outputs=x, name='vgg-unet-with-crop')
-        self.vgg_layers = [self.layers[i] for i in range(2,15)]
+        return input_img, x
 
     def __init__(self, N=32):
-        self.u_history = []
         self.N = N
-        self.__init_vgg_unet__()
-        self.net_description = { 'name': self.name, 'input_shape': self.input_shape,
-                                 'output_shape': self.output_shape, 'N': self.N }
+        input, output = self.__init_vgg_unet__()
+        super(VGGUnetModelWithCrop, self).__init__(inputs=input, outputs=output, name='vgg-unet-with-crop')
+
+        self.vgg_layers = [self.layers[i] for i in range(2,15)]
+        self.net_description['N'] = self.N
 
     def load_vgg_weights(self):
         vgg = keras.applications.vgg16.VGG16(include_top=False, weights='imagenet', input_tensor=None,

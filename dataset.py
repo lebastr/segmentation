@@ -9,6 +9,7 @@ from matplotlib.collections import PolyCollection
 
 import PIL
 from PIL import ImageDraw
+from PIL import Image as PILImage
 
 import json
 import random
@@ -29,19 +30,21 @@ class Building(object):
         self.outer_poly = poly_array[0]
         self.inner_poly = poly_array[1] if len(poly_array) == 2 else []
 
-
-def resample(X, new_size):
-    X_new = np.empty((new_size[0], new_size[1], X.shape[2]))
+def apply_pil_transform(f, X):
+    Xs_new = []
     for j in range(X.shape[2]):
-        img = PIL.Image.fromarray(X[:,:,j]).resize(new_size, resample=PIL.Image.BILINEAR)
-        X_new[:,:,j] = np.array(img)
+        img = PILImage.fromarray(X[:,:,j])
+        Xs_new.append(np.array(f(img)))
 
-    return X_new    
+    Xs_new = np.array(Xs_new)
+    return Xs_new.transpose([1,2,0])
 
-def rotate_and_translate(X, angle, translate=None):
+def rotate_and_translate_crop(X, angle, translate=None, crop=0):
     X_new = np.empty(X.shape)
     for j in range(X.shape[2]):
-        img = PIL.Image.fromarray(X[:,:,j]).rotate(angle, translate=translate)
+        img = PILImage.fromarray(X[:,:,j]).rotate(angle, translate=translate)
+        if crop > 0:
+            img = img.crop((crop, crop, X.shape[0] - crop, X.shape[1] - crop))
         X_new[:,:,j] = np.array(img)
 
     return X_new    
@@ -70,8 +73,8 @@ class Image(object):
             assert img.shape[0:2] == IMAGE_SIZE, "image size must be size %d x %d, but has %d x %d" % (IMAGE_SIZE[0], IMAGE_SIZE[1], img.shape[0], img.shape[1])
 
             if img.shape[0:2] != image_size:
-                img = resample(img, image_size)
-            
+                img = apply_pil_transform(lambda i: i.resize(image_size, resample=PILImage.BILINEAR), img)
+
             ch_psums.append(ch_psums[-1] + img.shape[2])
             imgs.append(img)
         
@@ -96,7 +99,7 @@ class ImageWithBuildings(Image):
         self.buildings = buildings
         
     def get_mask(self, image_size=None, only_border=False):
-        poly = PIL.Image.new('L', IMAGE_SIZE)
+        poly = PILImage.new('L', IMAGE_SIZE)
         pdraw = ImageDraw.Draw(poly)
         for p_out, p_in in [(b.outer_poly, b.inner_poly) for b in self.buildings]:
             if only_border:
@@ -108,7 +111,7 @@ class ImageWithBuildings(Image):
                 pdraw.polygon(map(tuple, p_in), fill=0,outline=0)
 
         if image_size is not None:
-            poly = poly.resize(image_size, resample=PIL.Image.BILINEAR)
+            poly = poly.resize(image_size, resample=PILImage.BILINEAR)
 
         return np.array(poly, dtype='float32')
     
@@ -146,26 +149,13 @@ def parse_csv(fname):
 
 def load_data_set_from_dumps(strjson):
     js = json.loads(strjson)
-    if js.has_key('input_shape'):
-        input_shape = js['input_shape']
-        output_shape = js['output_shape']
-    else:
-        input_shape = js['image_size']
-        output_shape = None
-
-    return DataSet(js['data_dir'], js['channels'], input_shape = js['input_shape'],
-                       output_shape = js['output_shape'], only_border=js['only_border'])
+    return DataSet(js['data_dir'], js['channels'], image_size=js['image_size'], only_border=js['only_border'])
 
 class DataSet(object):
-    def __init__(self, data_dir, channels, input_shape=None, output_shape=None, only_border=False):
+    def __init__(self, data_dir, channels, image_size=None, only_border=False):
         self.data_dir = data_dir
         self.channels = channels
-        self.input_shape = input_shape
-
-        if output_shape is None:
-            self.output_shape = self.input_shape
-        else:
-            self.output_shape = output_shape
+        self.image_size = image_size
 
         self.only_border = only_border
         self.load()
@@ -173,18 +163,17 @@ class DataSet(object):
     def dumps(self):
         return json.dumps({'data_dir' : self.data_dir,
                            'channels' : self.channels,
-                           'input_shape' : self.input_shape,
-                           'output_shape': self.output_shape,
+                           'image_size' : self.image_size,
                            'only_border' : self.only_border})
 
     def image_ids(self):
         return self.images.keys()
 
     def get_ndarray(self, image_id):
-        return self.images[image_id].get_ndarray(self.channels, self.input_shape)
+        return self.images[image_id].get_ndarray(self.channels, self.image_size)
 
     def get_mask(self, image_id):
-        return self.images[image_id].get_mask(self.output_shape, only_border=self.only_border)
+        return self.images[image_id].get_mask(self.image_size, only_border=self.only_border)
 
     def draw(self, image_id, ax=None, withbuildings = True):
         self.images[image_id].draw(ax=ax, withbuildings=withbuildings)
