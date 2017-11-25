@@ -56,13 +56,10 @@ class Image(object):
         self.image_id = image_id
 
 
-    def get_ndarray(self, channels, image_size=None):
+    def get_ndarray(self, channels):
         imgs = []
         ch_psums = [0]
 
-        if image_size is None:
-            image_size = IMAGE_SIZE
-        
         for ch in channels:
             path = self.data_dir + "/" + ch
             img = np.float32(tiff.imread("%s/%s.tif" % (path, self.image_id)))
@@ -72,13 +69,10 @@ class Image(object):
 
             assert img.shape[0:2] == IMAGE_SIZE, "image size must be size %d x %d, but has %d x %d" % (IMAGE_SIZE[0], IMAGE_SIZE[1], img.shape[0], img.shape[1])
 
-            if img.shape[0:2] != image_size:
-                img = apply_pil_transform(lambda i: i.resize(image_size, resample=PILImage.BILINEAR), img)
-
             ch_psums.append(ch_psums[-1] + img.shape[2])
             imgs.append(img)
         
-        image = np.zeros((image_size[0], image_size[1], ch_psums[-1]), dtype='float32')
+        image = np.zeros((IMAGE_SIZE[0], IMAGE_SIZE[1], ch_psums[-1]), dtype='float32')
         for i in range(len(imgs)):
             image[:,:,ch_psums[i]:ch_psums[i+1]] = imgs[i]
         
@@ -98,7 +92,7 @@ class ImageWithBuildings(Image):
         super(ImageWithBuildings, self).__init__(data_dir, image_id)
         self.buildings = buildings
         
-    def get_mask(self, image_size=None, only_border=False):
+    def get_mask(self, only_border=False):
         poly = PILImage.new('L', IMAGE_SIZE)
         pdraw = ImageDraw.Draw(poly)
         for p_out, p_in in [(b.outer_poly, b.inner_poly) for b in self.buildings]:
@@ -109,9 +103,6 @@ class ImageWithBuildings(Image):
                 
             if len(p_in) != 0:
                 pdraw.polygon(map(tuple, p_in), fill=0,outline=0)
-
-        if image_size is not None:
-            poly = poly.resize(image_size, resample=PILImage.BILINEAR)
 
         return np.array(poly, dtype='float32')
     
@@ -149,13 +140,12 @@ def parse_csv(fname):
 
 def load_data_set_from_dumps(strjson):
     js = json.loads(strjson)
-    return DataSet(js['data_dir'], js['channels'], image_size=js['image_size'], only_border=js['only_border'])
+    return DataSet(js['data_dir'], js['channels'], only_border=js['only_border'])
 
 class DataSet(object):
-    def __init__(self, data_dir, channels, image_size=None, only_border=False):
+    def __init__(self, data_dir, channels, only_border=False):
         self.data_dir = data_dir
         self.channels = channels
-        self.image_size = image_size
 
         self.only_border = only_border
         self.load()
@@ -163,17 +153,16 @@ class DataSet(object):
     def dumps(self):
         return json.dumps({'data_dir' : self.data_dir,
                            'channels' : self.channels,
-                           'image_size' : self.image_size,
                            'only_border' : self.only_border})
 
     def image_ids(self):
         return self.images.keys()
 
     def get_ndarray(self, image_id):
-        return self.images[image_id].get_ndarray(self.channels, self.image_size)
+        return self.images[image_id].get_ndarray(self.channels)
 
     def get_mask(self, image_id):
-        return self.images[image_id].get_mask(self.image_size, only_border=self.only_border)
+        return self.images[image_id].get_mask(only_border=self.only_border)
 
     def draw(self, image_id, ax=None, withbuildings = True):
         self.images[image_id].draw(ax=ax, withbuildings=withbuildings)
@@ -218,7 +207,8 @@ class DataSet(object):
         
         return images.keys()
 
-    def __load_train_test__(self, path):
+    @staticmethod
+    def __load_train_test__(path):
         d = json.load(open(path, "r"))
         return d['train'], d['test']
         

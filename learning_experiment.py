@@ -12,6 +12,8 @@ from shutil import copyfile
 import numpy as np
 import matplotlib.pyplot as plt
 
+import PIL.Image
+
 def create_experiment(description, data_set):
     DATE = str(datetime.datetime.now())
     DIR = './experiments/%s' % DATE
@@ -110,54 +112,72 @@ class LearningExperiment(object):
 
             self.save(net, "%d" % epoch)
 
+
+def expand_with_mirrors(X, padding):
+    assert X.shape[0] == X.shape[1], "X must have square form"
+    size = X.shape[0]
+
+    new_size = size + 2 * padding
+    X_expanded = np.zeros((size + 2 * padding, size + 2 * padding, X.shape[2]), dtype=X.dtype)
+
+    X_expanded[padding:size + padding, padding:size + padding,:] = X[:,:,:]
+
+    X_v = X[::-1,:,:]
+    X_h = X[:, ::-1,:]
+    X_hv = X_h[::-1,:,:]
+
+    X_expanded[:padding, padding:new_size - padding,:] = X_v[size - padding:,:,:]
+    X_expanded[new_size - padding:, padding:new_size - padding,:] = X_v[:padding, :,:]
+    X_expanded[padding:new_size - padding, :padding,:] = X_h[:, size - padding:,:]
+    X_expanded[padding:new_size - padding, new_size - padding:,:] = X_h[:, :padding,:]
+    X_expanded[:padding, :padding,:] = X_hv[size - padding:, size - padding:,:]
+    X_expanded[:padding, new_size - padding:,:] = X_hv[size - padding:, :padding,:]
+    X_expanded[new_size - padding:, new_size - padding:,:] = X_hv[:padding, :padding,:]
+    X_expanded[new_size - padding:, :padding,:] = X_hv[:padding, size - padding:,:]
+
+    return X_expanded
+
+
+def symmetry_crop(X, s):
+    h, w = X.shape[:2]
+    return X[s:h-s, s:w-s, :]
+
 class BatchGenerator(object):
-    def __init__(self, data_set, ids, shuffle=True, shuffle_on_each_epoch=False, random_rotate=False,
-                 random_translate=False, crop_mask=0):
+    def __init__(self, data_set, ids, shuffle=True, shuffle_on_each_epoch=False,
+                 input_size=None, crop=0, random_rotation_amplitude=0):
 
         self.ids = copy.copy(ids)
         self.data_set = data_set
-        self.random_rotate = random_rotate
-        self.random_translate = random_translate
         self.shuffle_on_each_epoch = shuffle_on_each_epoch
-        self.crop_mask = crop_mask
 
-        (h,w,d) = data_set.get_ndarray(self.ids[0]).shape
-        self.image_size = (h,w)
-        self.n_channels = d
-                
         if shuffle:
             random.shuffle(self.ids)
-        
-    def shape(self):
-        return (self.image_size[0], self.image_size[1], self.n_channels)
-    
+
+        assert data_set.shape[0] == data_set.shape[1], "Image must be a square!"
+
+        if input_size is None:
+            input_size = data_set.shape[0]
+
+        self.image_size = data_set.shape[0]
+        self.input_size = input_size
+        self.random_rotation_amplitude = random_rotation_amplitude
+        self.crop = crop
+
     def __call__(self, batch_size):
-        def make_transformation():
-            if self.random_rotate:
-                angle = np.random.uniform(0.0, 360.0)
-            else: angle = 0
-            
-            if self.random_translate:
-                xt = np.random.uniform(-50.0,50.0)
-                yt = np.random.uniform(-50.0,50.0)
-            else:
-                xt = 0
-                yt = 0
+        def make_random_rotate():
+            alpha = np.random.uniform(-self.random_rotation_amplitude, self.random_rotation_amplitude)
+            return lambda img: PIL.Image.Image.rotate(img, alpha)
 
-            def transformation(crop = 0):
-                def g(a,b):
-                    return lambda x: b(a, x)
+        def make_random_crop():
+            ext_size = self.image_size + 2*self.crop
+            low = 0
+            high = ext_size - self.input_size
+            [x_corner,y_corner] = np.int32(np.random.uniform(low, high, size=2))
 
-                transform = lambda i: i
-                if self.random_rotate or self.random_translate:
-                    transform = g(transform, lambda t,i: t(i).rotate(angle, translate=(xt, yt)))
+            def crop(X):
+                return X[x_corner:x_corner+self.input_size, y_corner:y_corner + self.input_size, :]
 
-                if crop > 0:
-                    transform = g(transform, lambda t,i: t(i).crop((crop,crop, i.height-crop, i.width-crop)))
-
-                return transform
-
-            return transformation
+            return crop
 
         if self.shuffle_on_each_epoch:
             random.shuffle(self.ids)
@@ -166,11 +186,27 @@ class BatchGenerator(object):
             ids = self.ids[i:i+batch_size]
             Xs = []
             Ys = []
+
             for img_id in ids:
-                transformation = make_transformation()
-                Xs.append(dataset.apply_pil_transform(transformation(), self.data_set.get_ndarray(img_id)))
-                Ys.append(dataset.apply_pil_transform(transformation(crop = self.crop_mask),
-                                                      (self.data_set.get_mask(img_id)[:,:,None])))
+                X = self.data_set.get_ndarray(img_id)
+                Y = self.data_set.get_mask(img_id)[:,:,None]
+
+                if self.crop > 0:
+                    X = expand_with_mirrors(X, self.crop)
+                    Y = expand_with_mirrors(Y, self.crop)
+
+                crop = make_random_crop()
+                rotate = make_random_rotate()
+
+                X = crop(X)
+                X = dataset.apply_pil_transform(rotate, X)
+
+                Y = crop(Y)
+                Y = symmetry_crop(Y, self.crop)
+                Y = dataset.apply_pil_transform(rotate, Y)
+
+                Xs.append(X)
+                Ys.append(Y)
 
             Xs = np.array(Xs)
             Ys = np.array(Ys)

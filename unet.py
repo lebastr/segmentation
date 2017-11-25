@@ -169,6 +169,7 @@ def create_VGG16_conv_pipe_zero_padding(img_input):
     net['to-unet'] = x
     return net
 
+
 class VGGUnetModelWithCrop(MiddleModel):
     def __init_vgg_unet__(self):
         def two_conv2d(name, n_filter1, n_filter2, x):
