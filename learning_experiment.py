@@ -35,7 +35,7 @@ def create_experiment(description, data_set):
 class LearningExperiment(object):
     def __init__(self, path):
         self.path = path
-        self.description = open(self.path + "/description.txt", 'r').read()
+        self.description = json.load(open(self.path + "/description.txt", 'r'))
         self.__model_dir__ = self.path + "/model"
         self.__model_history_path__ = self.__model_dir__ + "/history.json"
         self.__model_description_path__ = self.__model_dir__ + "/description.json"
