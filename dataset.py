@@ -21,6 +21,11 @@ ChannelRGB_PanSharpen = "RGB-PanSharpen"
         
 IMAGE_SIZE = (650, 650)
 
+ONLY_INTERIOR = 0
+ONLY_BORDER = 1
+ONLY_CORNERS = 2
+
+
 class Building(object):
     def __init__(self, image_id, building_id, poly_array):
         self.image_id = image_id
@@ -92,15 +97,22 @@ class ImageWithBuildings(Image):
         super(ImageWithBuildings, self).__init__(data_dir, image_id)
         self.buildings = buildings
         
-    def get_mask(self, only_border=False):
+    def get_mask(self, type_mask = ONLY_INTERIOR):
         poly = PILImage.new('L', IMAGE_SIZE)
         pdraw = ImageDraw.Draw(poly)
         for p_out, p_in in [(b.outer_poly, b.inner_poly) for b in self.buildings]:
-            if only_border:
+            if type_mask == ONLY_BORDER:
                 pdraw.line(map(tuple, p_out), fill=1, width=5)
-            else:
+            elif type_mask == ONLY_INTERIOR:
                 pdraw.polygon(map(tuple, p_out), fill=1,outline=0)
-                
+
+            elif type_mask == ONLY_CORNERS:
+                for x,y in p_out:
+                    pdraw.ellipse([x-5, y-5, x+5, y+5], fill=1, outline=1)
+            else:
+                raise "Unsupported type_mask%s" % type_mask
+                    
+                    
             if len(p_in) != 0:
                 pdraw.polygon(map(tuple, p_in), fill=0,outline=0)
 
@@ -140,20 +152,27 @@ def parse_csv(fname):
 
 def load_data_set_from_dumps(strjson):
     js = json.loads(strjson)
-    return DataSet(js['data_dir'], js['channels'], only_border=js['only_border'])
+    if not js.has_key('type_mask'):
+        if js['only_border']:
+            type_mask = ONLY_BORDER
+        else:
+            type_mask = ONLY_INTERIOR
+    else:
+        type_mask = js['type_mask']
+        
+    return DataSet(js['data_dir'], js['channels'], type_mask=type_mask)
 
 class DataSet(object):
-    def __init__(self, data_dir, channels, only_border=False):
+    def __init__(self, data_dir, channels, type_mask = ONLY_INTERIOR):
         self.data_dir = data_dir
         self.channels = channels
-
-        self.only_border = only_border
+        self.type_mask = type_mask
         self.load()
         
     def dumps(self):
         return json.dumps({'data_dir' : self.data_dir,
                            'channels' : self.channels,
-                           'only_border' : self.only_border})
+                           'type_mask' : self.type_mask })
 
     def image_ids(self):
         return self.images.keys()
@@ -162,7 +181,7 @@ class DataSet(object):
         return self.images[image_id].get_ndarray(self.channels)
 
     def get_mask(self, image_id):
-        return self.images[image_id].get_mask(only_border=self.only_border)
+        return self.images[image_id].get_mask(type_mask=self.type_mask)
 
     def draw(self, image_id, ax=None, withbuildings = True):
         self.images[image_id].draw(ax=ax, withbuildings=withbuildings)
