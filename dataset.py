@@ -159,7 +159,7 @@ def load_data_set_from_dumps(strjson):
             type_mask = ONLY_INTERIOR
     else:
         type_mask = js['type_mask']
-        
+
     return DataSet(js['data_dir'], js['channels'], type_mask=type_mask)
 
 class DataSet(object):
@@ -168,17 +168,22 @@ class DataSet(object):
         self.channels = channels
         self.type_mask = type_mask
         self.load()
+
         
     def dumps(self):
         return json.dumps({'data_dir' : self.data_dir,
                            'channels' : self.channels,
-                           'type_mask' : self.type_mask })
+                           'type_mask' : self.type_mask})
 
     def image_ids(self):
         return self.images.keys()
 
-    def get_ndarray(self, image_id):
-        return self.images[image_id].get_ndarray(self.channels)
+    def get_ndarray(self, image_id, channel_first=False):
+        x = self.images[image_id].get_ndarray(self.channels)
+        if channel_first:
+            return x.transpose([2,0,1])
+        else:
+            return x
 
     def get_mask(self, image_id):
         return self.images[image_id].get_mask(type_mask=self.type_mask)

@@ -144,11 +144,12 @@ def symmetry_crop(X, s):
 
 class BatchGenerator(object):
     def __init__(self, data_set, ids, shuffle=True, shuffle_on_each_epoch=False,
-                 input_size=None, crop=0, random_rotation_amplitude=0):
+                 input_size=None, crop=0, random_rotation_amplitude=0, channel_first=False):
 
         self.ids = copy.copy(ids)
         self.data_set = data_set
         self.shuffle_on_each_epoch = shuffle_on_each_epoch
+        self.channel_first = channel_first
 
         if shuffle:
             random.shuffle(self.ids)
@@ -210,6 +211,11 @@ class BatchGenerator(object):
 
             Xs = np.array(Xs)
             Ys = np.array(Ys)
+
+            if self.channel_first:
+                Xs = Xs.transpose([0,3,1,2])
+                Ys = Ys.transpose([0,3,1,2])
+
             yield ids, Xs, Ys
 
 def moving_average(window_size, xs):
