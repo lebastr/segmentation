@@ -89,10 +89,10 @@ def eval_metrics(predicted, ground_truth):
     relevant = float(ground_truth_mask.sum())
     selected = float(predicted_mask.sum())
 
-    precision = tp / selected if selected > 0 else None
-    recall = tp / relevant if relevant > 0 else None
+    precision = tp / selected if selected >= 1 else None
+    recall = tp / relevant if relevant >= 1 else None
 
-    f1 = 2*precision*recall/(precision + recall) if (precision is not None) and (recall is not None) else None
+    f1 = 2*precision*recall/(precision + recall) if (precision is not None) and (recall is not None) and (precision+recall >= 1) else None
 
     return {'tp_mask': tp_mask, 'fp_mask': fp_mask, 'fn_mask': fn_mask,
             'tp': tp, 'relevant': relevant, 'selected': selected,
@@ -247,5 +247,9 @@ def main():
     except KeyboardInterrupt as e:
         network_manager.save()
 
+    except BaseException as e:
+        network_manager.save()
+        raise e
+        
 if __name__ == "__main__":
     main()
