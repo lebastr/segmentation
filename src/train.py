@@ -1,83 +1,197 @@
+import argparse
+import dataset as DS
+import os
+import json
+import torch
+import unet as U
+import batchgen as BG
 import numpy as np
-from PIL import Image as PILImage
+import tqdm
 
-class BatchGenerator(object):
-    def __init__(self, points, get_features, get_target, net_in_size, net_out_size, rotate_amplitude=10, reflect=False, random_crop=True):
-        self.points = points
-        self.get_features = get_features
-        self.get_target = get_target
+from torch import FloatTensor
+from torch.autograd import Variable
+import torch.nn.functional as F
+import torch.optim
+from tensorboard import SummaryWriter
 
-        assert (net_in_size - net_out_size) % 2 == 0, "net_in_size - net_out_size must be even"
 
-        self.net_in_size = net_in_size
-        self.net_out_size = net_out_size
-        self.rotate_amp = rotate_amplitude
-        self.reflect = reflect
-        self.random_crop = random_crop
+class NManager(object):
+    def __init__(self, model_dir):
+        self.model_dir = model_dir
+        self.model_state_path = model_dir + "/state.json"
 
-        self.xshape = get_features(points[0]).shape
+        if not os.path.exists(self.model_dir):
+            os.mkdir(self.model_dir)
 
-    def __call__(self, batch_size=5):
-        def make_augmentation():
-            if self.random_crop:
-                angle = np.random.uniform(-self.rotate_amp, self.rotate_amp)
-                bound = 1 + int(self.net_in_size * (1 + np.sin(2 * np.pi * np.abs(angle) / 180)))
-                if (bound - self.net_in_size) % 2 != 0:
-                    bound += 1
+        if os.path.exists(self.model_state_path):
+            self.restore()
+            self.registered = True
 
-                x_crop = int(np.random.uniform(0, self.xshape[1] - bound))
-                y_crop = int(np.random.uniform(0, self.xshape[2] - bound))
-                padding = (bound - self.net_in_size) / 2
+        else:
+            self.registered = False
 
-#                print("bound: %d, padding: %d" % (bound, padding))
-                def augment_A(X):
-                    X = X[:, x_crop:x_crop+bound, y_crop:y_crop+bound]
-                    X = np.array([np.array(PILImage.fromarray(x).rotate(angle)) for x in X])
-                    X = X[:, padding:padding + self.net_in_size, padding:padding + self.net_in_size]
-                    if self.reflect:
-                        X = X[:, ::-1, :]
+    def __last_model_path__(self):
+        return self.model_dir + "/model%d.pth" % self.iteration
 
-                    return X
-            else:
+    def registered(self):
+        return self.registered
 
-                def augment_A(X):
-                    padding1 = (self.xshape[1] - self.net_in_size) // 2
-                    padding2 = (self.xshape[2] - self.net_in_size) // 2
-                    return X[:, padding1:padding1 + self.net_in_size, padding2:padding2 + self.net_in_size]
+    def get_net(self):
+        return self.net
 
-            def augment(X):
-                X = augment_A(X)
-                if self.reflect:
-                    X = X[:, ::-1, :]
+    def restore(self):
+        state = json.load(open(self.model_state_path, 'r'))
+        self.iteration = state['iteration']
+        self.name = state['name']
 
-                return X
+        self.net = torch.load(self.__last_model_path__())
+        return self.net
 
-            return augment
+    def register_net(self, net, name):
+        assert not self.registered, "Network is already registered"
+        assert isinstance(net, U.Unet), "Net must be Unet instance"
+        assert isinstance(name, str), "name must be string"
 
-        def crop_target(Y):
-            padding = (self.net_in_size - self.net_out_size) // 2
-            return Y[:, padding:padding + self.net_out_size, padding:padding + self.net_out_size]
+        self.iteration = 0
+        self.name = name
+        self.net = net
+        self.registered = True
 
+    def save(self):
+        json.dump({'iteration': self.iteration, 'name': self.name}, open(self.model_state_path, 'w'))
+        torch.save(self.net, self.__last_model_path__())
+
+def batch_generator(learning_point_generator, batch_size):
+    batch_features = []
+    batch_target = []
+
+    for b in range(batch_size):
+        X, Y = learning_point_generator.next()
+        batch_features.append(X)
+        batch_target.append(Y)
+
+    return np.array(batch_features), np.float32(batch_target)
+
+def get_iterator(n_steps):
+    if n_steps == 0:
+        i = 0
         while True:
-            for i in range(0, len(self.points), batch_size):
-                points  = self.points[i:i + batch_size]
+            yield i
+            i += 1
 
-                features_batch = []
-                target_batch = []
+    else:
+        for i in xrange(n_steps):
+            yield i
 
-                for p in points:
-                    augment = make_augmentation()
+def main():
+    parser = argparse.ArgumentParser(description="Train U-net")
 
-                    X = self.get_features(p)
-                    Y = self.get_target(p)
+    parser.add_argument('--model_dir', type=str, required=True,
+                        help='Where network will be saved and restored')
 
-                    X = augment(X)
-                    Y = augment(Y)
-                    Y = crop_target(Y)
-                    features_batch.append(X)
-                    target_batch.append(Y)
+    parser.add_argument("--lr",
+                        type=float,
+                        default=1e-4,
+                        help="Adam learning rate")
 
-                features_batch = np.array(features_batch)
-                target_batch = np.array(target_batch)
+    parser.add_argument("--batch_size",
+                        type=int,
+                        default=5,
+                        help="Batch size")
 
-                yield features_batch, target_batch
+
+    parser.add_argument("--input_size",
+                        type=int,
+                        default=324,
+                        help="Input size of the image will fed into network. Input_size = 16*n + 4")
+
+    parser.add_argument("--tb_log_dir",
+                        type=str,
+                        required=True,
+                        help="Tensorboard log dir")
+
+    parser.add_argument("--iteration_n",
+                        type=int,
+                        default=0,
+                        help="Iteration's number. 0 mean inf")
+
+    parser.add_argument("--daset_dir",
+                        type=str,
+                        default="../dataset/trainset")
+
+    parser.add_argument("--pretrained_vgg",
+                        type=str,
+                        choices=['yes', 'no'],
+                        default="yes",
+                        help="Use pretrained vgg weigth")
+
+    parser.add_argument("--fix_vgg",
+                        type=str,
+                        choices=['yes', 'no'],
+                        default="yes",
+                        help="Fix vgg weights while learning")
+
+
+
+    args = parser.parse_args()
+
+    model_dir = args.model_dir
+    learning_rate = args.lr
+    batch_size = args.batch_size
+    input_size = args.input_size
+    tb_log_dir = args.tb_log_dir
+    iteration_n = args.iteration_n
+    dataset_dir = args.dataset_dir
+    pretrained_vgg = args.pretrained_vgg == 'yes'
+    fix_vgg = args.fix_vgg == 'yes'
+
+    dataset = DS.DataSet(dataset_dir)
+
+    train = dataset.train_images()
+    test = dataset.test_images()
+
+    network_manager = NManager(model_dir)
+    if network_manager.registered:
+        net = network_manager.get_net()
+    else:
+        net = U.Unet(vgg_pretrained=pretrained_vgg)
+
+
+    net.cuda()
+
+    def get_features(x):
+        return x.get_ndarray([DS.ChannelRGB_PanSharpen])
+
+    def get_target(x):
+        return x.get_mask()
+
+    learning_point_generator = BG.LearningPointGenerator(train, get_features, get_target,
+                                                         input_size, input_size - 208, rotate_amplitude=10,
+                                                         random_crop=True, reflect=True)()
+
+    if fix_vgg:
+        parameters = list(net.bn.parameters()) + list(net.decoder.parameters()) + list(net.conv1x1.parameters())
+    else:
+        parameters = net.parameters()
+
+    optimizer = torch.optim.Adam(parameters, lr=learning_rate)
+    logger = SummaryWriter(tb_log_dir)
+
+    for _ in tqdm.tqdm(get_iterator(iteration_n)):
+        iteration = network_manager.iteration
+        batch_features, batch_target = batch_generator(learning_point_generator, batch_size)
+
+        batch_features = Variable(FloatTensor(batch_features))
+        batch_target = Variable(FloatTensor(batch_target))
+
+        predicted = net.forward(batch_features)
+
+        loss = F.binary_cross_entropy(predicted, batch_target)
+
+        loss.backward()
+        optimizer.step()
+
+        logger.add_scalar('loss', loss)
+
+if __name__ == "__main__":
+    main()
