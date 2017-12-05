@@ -226,6 +226,7 @@ def main():
             metrics = eval_metrics(predicted, batch_target)
             loss = metrics['loss']
 
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
