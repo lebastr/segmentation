@@ -74,6 +74,30 @@ def batch_generator(learning_point_generator, batch_size):
 
     return np.array(batch_features), np.float32(batch_target)
 
+def eval_metrics(predicted, ground_truth):
+    loss = F.binary_cross_entropy(predicted, ground_truth)
+
+    predicted_mask = (predicted > 0.5).int()
+    ground_truth_mask = (ground_truth > 0.5).int()
+
+    tp_mask = predicted_mask & ground_truth_mask
+    fp_mask = predicted_mask - tp_mask
+    fn_mask = ground_truth_mask - tp_mask
+
+    tp = tp_mask.sum().float()
+
+    relevant = ground_truth_mask.sum().float()
+    selected = predicted_mask.sum().float()
+
+    precision = tp / selected if selected > 0 else None
+    recall = tp / relevant if relevant > 0 else None
+
+    f1 = 2*precision*recall/(precision + recall) if (precision is not None) and (recall is not None) else None
+
+    return {'tp_mask': tp_mask, 'fp_mask': fp_mask, 'fn_mask': fn_mask,
+            'tp': tp, 'relevant': relevant, 'selected': selected,
+            'precision': precision, 'recall': recall, 'f1': f1, 'loss': loss }
+
 def get_iterator(start, n_steps):
     if n_steps == 0:
         i = start
@@ -162,6 +186,7 @@ def main():
     if network_manager.registered:
         net = network_manager.get_net()
     else:
+        print("Use pretrained weihts %s" % str(pretrained_vgg))
         net = U.Unet(vgg_pretrained=pretrained_vgg)
         network_manager.register_net(net)
 
@@ -175,7 +200,7 @@ def main():
         return x.get_interior_mask()
 
     learning_point_generator = BG.LearningPointGenerator(train, get_features, get_target,
-                                                         input_size, input_size - 208, rotate_amplitude=10,
+                                                         input_size, input_size - 208, rotate_amplitude=20,
                                                          random_crop=True, reflect=True)()
 
     if fix_vgg:
@@ -183,6 +208,7 @@ def main():
     else:
         parameters = net.parameters()
 
+    print("LR: %f" % learning_rate)
     optimizer = torch.optim.Adam(parameters, lr=learning_rate)
     logger = SummaryWriter(tb_log_dir + "/" + net_name)
 
@@ -197,12 +223,22 @@ def main():
 
             predicted = net.forward(batch_features)
 
-            loss = F.binary_cross_entropy(predicted, batch_target)
+            metrics = eval_metrics(predicted, batch_target)
+            loss = metrics['loss']
 
             loss.backward()
             optimizer.step()
 
+            def log_if_not_none(name, tensor_s):
+                if tensor_s is not None:
+                    logger.add_scalar(name, tensor_s.data[0], iteration)
+
             logger.add_scalar('loss', loss.data[0], iteration)
+            log_if_not_none('precision', metrics['precision'])
+            log_if_not_none('recall', metrics['recall'])
+            log_if_not_none('f1', metrics['f1'])
+            logger.add_scalar('relevant', metrics['relevant'].data[0], iteration)
+
             network_manager.iteration += 1
 
     except BaseException as e:
