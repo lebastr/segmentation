@@ -77,17 +77,17 @@ def batch_generator(learning_point_generator, batch_size):
 def eval_metrics(predicted, ground_truth):
     loss = F.binary_cross_entropy(predicted, ground_truth)
 
-    predicted_mask = (predicted > 0.5).int()
-    ground_truth_mask = (ground_truth > 0.5).int()
+    predicted_mask = (predicted.data > 0.5).int()
+    ground_truth_mask = (ground_truth.data > 0.5).int()
 
     tp_mask = predicted_mask & ground_truth_mask
     fp_mask = predicted_mask - tp_mask
     fn_mask = ground_truth_mask - tp_mask
 
-    tp = tp_mask.sum().float()
+    tp = float(tp_mask.sum())
 
-    relevant = ground_truth_mask.sum().float()
-    selected = predicted_mask.sum().float()
+    relevant = float(ground_truth_mask.sum())
+    selected = float(predicted_mask.sum())
 
     precision = tp / selected if selected > 0 else None
     recall = tp / relevant if relevant > 0 else None
@@ -229,19 +229,22 @@ def main():
             loss.backward()
             optimizer.step()
 
-            def log_if_not_none(name, tensor_s):
-                if tensor_s is not None:
-                    logger.add_scalar(name, tensor_s.data[0], iteration)
+            def log_if_not_none(name, v):
+                if v is not None:
+                    logger.add_scalar(name, v, iteration)
 
             logger.add_scalar('loss', loss.data[0], iteration)
             log_if_not_none('precision', metrics['precision'])
             log_if_not_none('recall', metrics['recall'])
             log_if_not_none('f1', metrics['f1'])
-            logger.add_scalar('relevant', metrics['relevant'].data[0], iteration)
+            logger.add_scalar('relevant', metrics['relevant'], iteration)
 
+            if iteration % 1000 == 0:
+                network_manager.save()
+                
             network_manager.iteration += 1
 
-    except BaseException as e:
+    except KeyboardInterrupt as e:
         network_manager.save()
 
 if __name__ == "__main__":
