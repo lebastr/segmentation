@@ -327,7 +327,9 @@ def main():
             return x.get_ndarray([DS.ChannelRGB_PanSharpen])
     else:
         def get_features(x):
-            return x.get_ndarray([DS.ChannelPAN])
+            img0 = x.get_ndarray([DS.ChannelPAN])[0]
+            img = np.array([img0, img0, img0])
+            return img
 
 
     def get_target(x):
