@@ -132,7 +132,7 @@ def eval_base_metrics(predicted, ground_truth):
             'tp': tp, 'relevant': relevant, 'selected': selected, 'loss': loss }
 
 def average_metrics(net, sampler, batch_size, n_samples):
-    loss = torch.Tensor([0])
+    avg_loss = 0.0
     tp = 0.0
     relevant = 0.0
     selected = 0.0
@@ -151,7 +151,7 @@ def average_metrics(net, sampler, batch_size, n_samples):
 
         metrics = eval_base_metrics(predicted, batch_target)
 
-        loss += metrics['loss'].data * bsize
+        avg_loss += metrics['loss'].data[0] * bsize
 
         tp += metrics['tp']
         relevant += metrics['relevant']
@@ -161,7 +161,7 @@ def average_metrics(net, sampler, batch_size, n_samples):
         count += 1
 
     avg_metrics = eval_precision_recall_f1(tp=tp, selected=selected, relevant=relevant)
-    avg_metrics.update({'loss' : loss / n_samples })
+    avg_metrics.update({'loss' : avg_loss / n_samples })
     return avg_metrics
 
 def log_metrics(tb_logger, prefix, metrics, step):
@@ -169,7 +169,11 @@ def log_metrics(tb_logger, prefix, metrics, step):
         if v is not None:
             tb_logger.add_scalar(name, v, step)
 
-    tb_logger.add_scalar(prefix + '/loss', metrics['loss'].data[0], step)
+    loss = metrics['loss']
+    if isinstance(loss, Variable):
+        loss = loss.data[0]
+
+    tb_logger.add_scalar(prefix + '/loss', loss, step)
     log_if_not_none(prefix + '/precision', metrics['precision'])
     log_if_not_none(prefix + '/recall', metrics['recall'])
     log_if_not_none(prefix + '/f1', metrics['f1'])
