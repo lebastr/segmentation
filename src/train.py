@@ -316,7 +316,7 @@ def main():
             loss.backward()
             optimizer.step()
 
-            log_metrics(logger, 'train', train_metrics, step)
+            log_metrics(logger, '', train_metrics, step)
 
             if step % 1000 == 0:
                 network_manager.save()
