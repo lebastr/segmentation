@@ -182,12 +182,16 @@ def log_metrics(tb_logger, prefix, metrics, step):
     tb_logger.add_scalar(prefix + '/relevant', metrics['relevant'], step)
 
 def generate_image(tb_logger, net, name, images, get_features, get_target,
-                   net_input_size, net_output_size, step):
+                   net_input_size, net_output_size, step, level=0.09):
 
-    image = random.choice(images)
+    for trial in range(20):
+        image = random.choice(images)
+        target = get_target(image)
+        v = 1.0 * target.sum() / (target.shape[1]*target.shape[2])
+        if v > level:
+            break
 
     features = get_features(image)
-    target = get_target(image)
 
     heat_map = U.predict(net, net_input_size, net_output_size, features)
 
