@@ -359,7 +359,8 @@ def main():
             optimizer.step()
 
             log_metrics(logger, '', train_metrics, step)
-
+            logger.add_scalar('lr', np.log(learning_rate)/np.log(10), step)
+            
             if step % 1000 == 0:
                 network_manager.save()
 
