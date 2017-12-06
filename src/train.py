@@ -44,11 +44,12 @@ class NManager(object):
 
     def restore(self):
         state = json.load(open(self.model_state_path, 'r'))
-        self.iteration = state['iteration'] + 1
+        self.iteration = state['iteration']
         self.name = state['name']
 
         self.net = torch.load(self.__last_model_path__())
         print("Net %s was restored from checkpoint %d" % (self.name, self.iteration))
+        self.iteration += 1
         return self.net
 
     def register_net(self, net):
