@@ -7,6 +7,7 @@ import unet as U
 import sampler as S
 import numpy as np
 import tqdm
+import copy
 
 from contextlib import contextmanager
 from torch import FloatTensor
@@ -86,18 +87,33 @@ class NManager(object):
             yield self.iteration
             self.iteration += 1
 
-def batch_generator(learning_point_generator, batch_size):
+def batch_generator(sampler, batch_size):
     batch_features = []
     batch_target = []
 
     for b in range(batch_size):
-        X, Y = learning_point_generator.next()
+        X, Y = sampler.next()
         batch_features.append(X)
         batch_target.append(Y)
 
     return np.array(batch_features), np.float32(batch_target)
 
-def eval_metrics(predicted, ground_truth):
+def eval_precision_recall_f1(**kwargs):
+    tp = kwargs['tp']
+    selected = kwargs['selected']
+    relevant = kwargs['relevant']
+
+    precision = tp / selected if selected >= 1 else None
+    recall = tp / relevant if relevant >= 1 else None
+
+    f1 = 2*precision*recall/(precision + recall) \
+        if (precision is not None) and (recall is not None) and (precision+recall >= 1) else None
+
+    metrics = copy.copy(kwargs)
+    metrics.update({'precision': precision, 'recall': recall, 'f1': f1})
+    return metrics
+
+def eval_base_metrics(predicted, ground_truth):
     loss = F.binary_cross_entropy(predicted, ground_truth)
 
     predicted_mask = (predicted.data > 0.5).int()
@@ -112,15 +128,52 @@ def eval_metrics(predicted, ground_truth):
     relevant = float(ground_truth_mask.sum())
     selected = float(predicted_mask.sum())
 
-    precision = tp / selected if selected >= 1 else None
-    recall = tp / relevant if relevant >= 1 else None
-
-    f1 = 2*precision*recall/(precision + recall) if (precision is not None) and (recall is not None) and (precision+recall >= 1) else None
-
     return {'tp_mask': tp_mask, 'fp_mask': fp_mask, 'fn_mask': fn_mask,
-            'tp': tp, 'relevant': relevant, 'selected': selected,
-            'precision': precision, 'recall': recall, 'f1': f1, 'loss': loss }
+            'tp': tp, 'relevant': relevant, 'selected': selected, 'loss': loss }
 
+def average_metrics(net, sampler, batch_size, n_samples):
+    loss = torch.Tensor([0])
+    tp = 0.0
+    relevant = 0.0
+    selected = 0.0
+
+    count = 0
+    remainder = n_samples
+    while remainder > 0:
+        bsize = batch_size if remainder > batch_size else remainder
+
+        batch_features, batch_target = batch_generator(sampler, bsize)
+
+        batch_features = Variable(FloatTensor(batch_features)).cuda()
+        batch_target = Variable(FloatTensor(batch_target)).cuda()
+
+        predicted = net.forward(batch_features)
+
+        metrics = eval_base_metrics(predicted, batch_target)
+
+        loss += metrics['loss'].data * bsize
+
+        tp += metrics['tp']
+        relevant += metrics['relevant']
+        selected += metrics['selected']
+
+        remainder -= batch_size
+        count += 1
+
+    avg_metrics = eval_precision_recall_f1(tp=tp, selected=selected, relevant=relevant)
+    avg_metrics.update({'loss' : loss / n_samples })
+    return avg_metrics
+
+def log_metrics(tb_logger, prefix, metrics, step):
+    def log_if_not_none(name, v):
+        if v is not None:
+            tb_logger.add_scalar(name, v, step)
+
+    tb_logger.add_scalar(prefix + '/loss', metrics['loss'].data[0], step)
+    log_if_not_none(prefix + '/precision', metrics['precision'])
+    log_if_not_none(prefix + '/recall', metrics['recall'])
+    log_if_not_none(prefix + '/f1', metrics['f1'])
+    tb_logger.add_scalar(prefix + '/relevant', metrics['relevant'], step)
 
 def main():
     parser = argparse.ArgumentParser(description="Train U-net")
@@ -173,6 +226,17 @@ def main():
                         default="yes",
                         help="Fix vgg weights while learning")
 
+    parser.add_argument("--validation_freq",
+                        type=int,
+                        default=100,
+                        help="Validation freq")
+
+    parser.add_argument("--validation_set_size",
+                        type=int,
+                        default=20,
+                        help="metrics will be averaged by validation_set_size")
+
+
 
 
     args = parser.parse_args()
@@ -187,12 +251,11 @@ def main():
     dataset_dir = args.dataset_dir
     pretrained_vgg = args.pretrained_vgg == 'yes'
     fix_vgg = args.fix_vgg == 'yes'
+    validation_freq = args.validation_freq
+    validation_set_size = args.validation_set_size
 
     print("Load dataset")
     dataset = DS.DataSet(dataset_dir)
-
-    train = dataset.train_images()
-    test = dataset.test_images()
 
     print("Initialize network manager")
     network_manager = NManager(model_dir, net_name)
@@ -212,7 +275,11 @@ def main():
     def get_target(x):
         return x.get_interior_mask()
 
-    learning_point_generator = S.Sampler(train, get_features, get_target,
+    train_sampler = S.Sampler(dataset.train_images(), get_features, get_target,
+                                         input_size, input_size - 208, rotate_amplitude=20,
+                                         random_crop=True, reflect=True)()
+
+    test_sampler = S.Sampler(dataset.test_images(), get_features, get_target,
                                          input_size, input_size - 208, rotate_amplitude=20,
                                          random_crop=True, reflect=True)()
 
@@ -229,32 +296,31 @@ def main():
     print("Start learning")
     with network_manager.session(n_steps) as (iterator, initial_step):
         for step in tqdm.tqdm(iterator, initial=initial_step):
-            batch_features, batch_target = batch_generator(learning_point_generator, batch_size)
+            batch_features, batch_target = batch_generator(train_sampler, batch_size)
             
             batch_features = Variable(FloatTensor(batch_features)).cuda()
             batch_target = Variable(FloatTensor(batch_target)).cuda()
 
             predicted = net.forward(batch_features)
 
-            metrics = eval_metrics(predicted, batch_target)
-            loss = metrics['loss']
+            train_metrics = eval_base_metrics(predicted, batch_target)
+            train_metrics = eval_precision_recall_f1(train_metrics)
+
+            loss = train_metrics['loss']
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            def log_if_not_none(name, v):
-                if v is not None:
-                    logger.add_scalar(name, v, step)
-
-            logger.add_scalar('loss', loss.data[0], step)
-            log_if_not_none('precision', metrics['precision'])
-            log_if_not_none('recall', metrics['recall'])
-            log_if_not_none('f1', metrics['f1'])
-            logger.add_scalar('relevant', metrics['relevant'], step)
+            log_metrics(logger, 'train', train_metrics, step)
 
             if step % 1000 == 0:
                 network_manager.save()
+
+            if step % validation_freq == 0:
+                test_metrics = average_metrics(net, test_sampler, batch_size, validation_set_size)
+                log_metrics(logger, 'val', test_metrics, step)
+
 
 if __name__ == "__main__":
     main()
