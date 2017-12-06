@@ -8,6 +8,7 @@ import sampler as S
 import numpy as np
 import tqdm
 
+from contextlib import contextmanager
 from torch import FloatTensor
 from torch.autograd import Variable
 import torch.nn.functional as F
@@ -43,7 +44,7 @@ class NManager(object):
 
     def restore(self):
         state = json.load(open(self.model_state_path, 'r'))
-        self.iteration = state['iteration']
+        self.iteration = state['iteration'] + 1
         self.name = state['name']
 
         self.net = torch.load(self.__last_model_path__())
@@ -62,6 +63,15 @@ class NManager(object):
         print("\ncheckpoint at: %d" % self.iteration)
         json.dump({'iteration': self.iteration, 'name': self.name}, open(self.model_state_path, 'w'))
         torch.save(self.net, self.__last_model_path__())
+
+    @contextmanager
+    def session(self, n_steps):
+        it = self.iterator(n_steps)
+        try:
+            yield it, self.iteration
+
+        finally:
+            self.save()
 
     def iterator(self, n_steps):
         start = self.iteration
@@ -216,8 +226,8 @@ def main():
     logger = SummaryWriter(tb_log_dir + "/" + net_name)
 
     print("Start learning")
-    try:
-        for step in tqdm.tqdm(network_manager.iterator(n_steps), initial=network_manager.iteration):
+    with network_manager.session(n_steps) as (iterator, initial_step):
+        for step in tqdm.tqdm(iterator, initial=initial_step):
             batch_features, batch_target = batch_generator(learning_point_generator, batch_size)
             
             batch_features = Variable(FloatTensor(batch_features)).cuda()
@@ -245,12 +255,5 @@ def main():
             if step % 1000 == 0:
                 network_manager.save()
 
-    except KeyboardInterrupt as e:
-        network_manager.save()
-
-    except BaseException as e:
-        network_manager.save()
-        raise e
-        
 if __name__ == "__main__":
     main()
