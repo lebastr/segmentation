@@ -8,6 +8,7 @@ import sampler as S
 import numpy as np
 import tqdm
 import copy
+import random
 
 from contextlib import contextmanager
 from torch import FloatTensor
@@ -179,6 +180,28 @@ def log_metrics(tb_logger, prefix, metrics, step):
     log_if_not_none(prefix + '/f1', metrics['f1'])
     tb_logger.add_scalar(prefix + '/relevant', metrics['relevant'], step)
 
+def generate_image(tb_logger, net, name, images, get_features, get_target,
+                   net_input_size, net_output_size, step):
+
+    image = random.choice(images)
+
+    features = get_features(image)
+    target = get_target(image)
+
+    heat_map = net.predict(net, net_input_size, net_output_size, features)
+
+    metrics = eval_base_metrics(Variable(torch.from_numpy(heat_map)), Variable(torch.from_numpy(target)))
+
+    tp_mask = metrics['tp_mask']
+    fp_mask = metrics['fp_mask']
+    fn_mask = metrics['fn_mask']
+
+    img = torch.zeros((3, target.shape[1], target.shape[2]))
+    img[1] += tp_mask + fn_mask
+    img[0] += fp_mask + fn_mask
+
+    tb_logger.add_image(name, img, step)
+
 def main():
     parser = argparse.ArgumentParser(description="Train U-net")
 
@@ -202,7 +225,13 @@ def main():
     parser.add_argument("--input_size",
                         type=int,
                         default=324,
-                        help="Input size of the image will fed into network. Input_size = 16*n + 4")
+                        help="Input size of the image will fed into network. Input_size = 16*n + 4, Default: 324")
+
+    parser.add_argument("--output_size",
+                        type=int,
+                        default=116,
+                        help="size of the image produced by network. Default: 116")
+
 
     parser.add_argument("--tb_log_dir",
                         type=str,
@@ -233,12 +262,12 @@ def main():
     parser.add_argument("--validation_freq",
                         type=int,
                         default=100,
-                        help="Validation freq")
+                        help="Validation freq. Default 100")
 
     parser.add_argument("--validation_set_size",
                         type=int,
                         default=20,
-                        help="metrics will be averaged by validation_set_size")
+                        help="metrics will be averaged by validation_set_size. Default 20")
 
 
 
@@ -249,7 +278,8 @@ def main():
     model_dir = args.model_dir
     learning_rate = args.lr
     batch_size = args.batch_size
-    input_size = args.input_size
+    net_input_size = args.input_size
+    net_output_size = args.output_size
     tb_log_dir = args.tb_log_dir
     n_steps = args.n_steps
     dataset_dir = args.dataset_dir
@@ -280,11 +310,11 @@ def main():
         return x.get_interior_mask()
 
     train_sampler = S.Sampler(dataset.train_images(), get_features, get_target,
-                                         input_size, input_size - 208, rotate_amplitude=20,
+                                         net_input_size, net_output_size, rotate_amplitude=20,
                                          random_crop=True, reflect=True)()
 
     test_sampler = S.Sampler(dataset.test_images(), get_features, get_target,
-                                         input_size, input_size - 208, rotate_amplitude=20,
+                                         net_input_size, net_output_size, rotate_amplitude=20,
                                          random_crop=True, reflect=True)()
 
     if fix_vgg:
@@ -327,6 +357,10 @@ def main():
 
                 avg_train_metrics = average_metrics(net, train_sampler, batch_size, validation_set_size)
                 log_metrics(logger, 'avg_train', avg_train_metrics, step)
+
+                generate_image(logger, net, 'val', dataset.test_images(), get_features, get_target,
+                               net_input_size, net_output_size, step)
+
 
 
 if __name__ == "__main__":
