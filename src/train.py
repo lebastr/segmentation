@@ -4,7 +4,7 @@ import os
 import json
 import torch
 import unet as U
-import batchgen as BG
+import sampler as S
 import numpy as np
 import tqdm
 
@@ -63,6 +63,18 @@ class NManager(object):
         json.dump({'iteration': self.iteration, 'name': self.name}, open(self.model_state_path, 'w'))
         torch.save(self.net, self.__last_model_path__())
 
+    def iterator(self, n_steps):
+        start = self.iteration
+        def cond():
+            if n_steps <= 0:
+                return True
+            else:
+                return self.iteration - start <= n_steps
+
+        while cond():
+            yield self.iteration
+            self.iteration += 1
+
 def batch_generator(learning_point_generator, batch_size):
     batch_features = []
     batch_target = []
@@ -98,16 +110,6 @@ def eval_metrics(predicted, ground_truth):
             'tp': tp, 'relevant': relevant, 'selected': selected,
             'precision': precision, 'recall': recall, 'f1': f1, 'loss': loss }
 
-def get_iterator(start, n_steps):
-    if n_steps == 0:
-        i = start
-        while True:
-            yield i
-            i += 1
-
-    else:
-        for i in xrange(start, start+n_steps):
-            yield i
 
 def main():
     parser = argparse.ArgumentParser(description="Train U-net")
@@ -139,10 +141,10 @@ def main():
                         required=True,
                         help="Tensorboard log dir")
 
-    parser.add_argument("--iteration_n",
+    parser.add_argument("--n_steps",
                         type=int,
                         default=0,
-                        help="Iteration's number. 0 mean inf")
+                        help="Number of the steps. Default: 0 means infinity steps.")
 
     parser.add_argument("--dataset_dir",
                         type=str,
@@ -170,7 +172,7 @@ def main():
     batch_size = args.batch_size
     input_size = args.input_size
     tb_log_dir = args.tb_log_dir
-    iteration_n = args.iteration_n
+    n_steps = args.n_steps
     dataset_dir = args.dataset_dir
     pretrained_vgg = args.pretrained_vgg == 'yes'
     fix_vgg = args.fix_vgg == 'yes'
@@ -199,9 +201,9 @@ def main():
     def get_target(x):
         return x.get_interior_mask()
 
-    learning_point_generator = BG.LearningPointGenerator(train, get_features, get_target,
-                                                         input_size, input_size - 208, rotate_amplitude=20,
-                                                         random_crop=True, reflect=True)()
+    learning_point_generator = S.Sampler(train, get_features, get_target,
+                                         input_size, input_size - 208, rotate_amplitude=20,
+                                         random_crop=True, reflect=True)()
 
     if fix_vgg:
         parameters = list(net.bn.parameters()) + list(net.decoder.parameters()) + list(net.conv1x1.parameters())
@@ -210,12 +212,12 @@ def main():
 
     print("LR: %f" % learning_rate)
     optimizer = torch.optim.Adam(parameters, lr=learning_rate)
+
     logger = SummaryWriter(tb_log_dir + "/" + net_name)
 
     print("Start learning")
     try:
-        for _ in tqdm.tqdm(get_iterator(network_manager.iteration, iteration_n)):
-            iteration = network_manager.iteration
+        for step in tqdm.tqdm(network_manager.iterator(n_steps), initial=network_manager.iteration):
             batch_features, batch_target = batch_generator(learning_point_generator, batch_size)
             
             batch_features = Variable(FloatTensor(batch_features)).cuda()
@@ -232,18 +234,16 @@ def main():
 
             def log_if_not_none(name, v):
                 if v is not None:
-                    logger.add_scalar(name, v, iteration)
+                    logger.add_scalar(name, v, step)
 
-            logger.add_scalar('loss', loss.data[0], iteration)
+            logger.add_scalar('loss', loss.data[0], step)
             log_if_not_none('precision', metrics['precision'])
             log_if_not_none('recall', metrics['recall'])
             log_if_not_none('f1', metrics['f1'])
-            logger.add_scalar('relevant', metrics['relevant'], iteration)
+            logger.add_scalar('relevant', metrics['relevant'], step)
 
-            if iteration % 1000 == 0:
+            if step % 1000 == 0:
                 network_manager.save()
-                
-            network_manager.iteration += 1
 
     except KeyboardInterrupt as e:
         network_manager.save()

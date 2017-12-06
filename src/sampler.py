@@ -1,7 +1,7 @@
 import numpy as np
 from PIL import Image as PILImage
 
-class LearningPointGenerator(object):
+class Sampler(object):
     def __init__(self, points, get_features, get_target, net_in_size, net_out_size, rotate_amplitude=10, reflect=False, random_crop=True):
         self.points = points
         self.get_features = get_features
