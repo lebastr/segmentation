@@ -281,6 +281,12 @@ def main():
                         default=20,
                         help="metrics will be averaged by validation_set_size. Default 20")
 
+    parser.add_argument("--channel",
+                        type=str,
+                        choices=['rgb', 'gray'],
+                        default="rgb",
+                        help="channel. Default: rgb")
+
 
 
 
@@ -299,6 +305,7 @@ def main():
     fix_vgg = args.fix_vgg == 'yes'
     validation_freq = args.validation_freq
     validation_set_size = args.validation_set_size
+    channel = args.channel
 
     print("Load dataset")
     dataset = DS.DataSet(dataset_dir)
@@ -315,8 +322,13 @@ def main():
     print("Move to GPU")
     net.cuda()
 
-    def get_features(x):
-        return x.get_ndarray([DS.ChannelRGB_PanSharpen])
+    if channel == "rgb":
+        def get_features(x):
+            return x.get_ndarray([DS.ChannelRGB_PanSharpen])
+    else:
+        def get_features(x):
+            return x.get_ndarray([DS.ChannelPAN])
+
 
     def get_target(x):
         return x.get_interior_mask()
