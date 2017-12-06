@@ -201,12 +201,17 @@ def generate_image(tb_logger, net, name, images, get_features, get_target,
     fp_mask = metrics['fp_mask']
     fn_mask = metrics['fn_mask']
 
-    img = torch.zeros((2, 3, target.shape[1], target.shape[2]))
+    img = torch.zeros((3, 3, target.shape[1], target.shape[2]))
     img[0,1] += tp_mask.float() + fn_mask.float()
     img[0,0] += fp_mask.float() + fn_mask.float()
 
     img[1,:] += torch.from_numpy(np.float32(heat_map))[0]
+
+    i3c = np.float32(features[:3])
+    i3c = i3c / i3c.max()
     
+    img[2,:] += torch.from_numpy(i3c)
+
     tb_logger.add_image(name, torchvision.utils.make_grid(img), step)
 
 def main():
