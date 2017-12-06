@@ -321,6 +321,9 @@ def main():
                 test_metrics = average_metrics(net, test_sampler, batch_size, validation_set_size)
                 log_metrics(logger, 'val', test_metrics, step)
 
+                avg_train_metrics = average_metrics(net, train_sampler, batch_size, validation_set_size)
+                log_metrics(logger, 'avg_train', avg_train_metrics, step)
+
 
 if __name__ == "__main__":
     main()
