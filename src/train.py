@@ -304,7 +304,7 @@ def main():
             predicted = net.forward(batch_features)
 
             train_metrics = eval_base_metrics(predicted, batch_target)
-            train_metrics = eval_precision_recall_f1(train_metrics)
+            train_metrics = eval_precision_recall_f1(**train_metrics)
 
             loss = train_metrics['loss']
 
