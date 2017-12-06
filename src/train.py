@@ -15,6 +15,7 @@ from torch import FloatTensor
 from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.optim
+import torchvision.utils
 from tensorboard import SummaryWriter
 
 
@@ -188,19 +189,21 @@ def generate_image(tb_logger, net, name, images, get_features, get_target,
     features = get_features(image)
     target = get_target(image)
 
-    heat_map = net.predict(net, net_input_size, net_output_size, features)
+    heat_map = U.predict(net, net_input_size, net_output_size, features)
 
-    metrics = eval_base_metrics(Variable(torch.from_numpy(heat_map)), Variable(torch.from_numpy(target)))
+    metrics = eval_base_metrics(Variable(torch.from_numpy(np.float32(heat_map))), Variable(torch.from_numpy(np.float32(target))))
 
     tp_mask = metrics['tp_mask']
     fp_mask = metrics['fp_mask']
     fn_mask = metrics['fn_mask']
 
-    img = torch.zeros((3, target.shape[1], target.shape[2]))
-    img[1] += tp_mask + fn_mask
-    img[0] += fp_mask + fn_mask
+    img = torch.zeros((2, 3, target.shape[1], target.shape[2]))
+    img[0,1] += tp_mask.float() + fn_mask.float()
+    img[0,0] += fp_mask.float() + fn_mask.float()
 
-    tb_logger.add_image(name, img, step)
+    img[1,:] += torch.from_numpy(np.float32(heat_map))[0]
+    
+    tb_logger.add_image(name, torchvision.utils.make_grid(img), step)
 
 def main():
     parser = argparse.ArgumentParser(description="Train U-net")
@@ -359,6 +362,9 @@ def main():
                 log_metrics(logger, 'avg_train', avg_train_metrics, step)
 
                 generate_image(logger, net, 'val', dataset.test_images(), get_features, get_target,
+                               net_input_size, net_output_size, step)
+
+                generate_image(logger, net, 'train', dataset.train_images(), get_features, get_target,
                                net_input_size, net_output_size, step)
 
 
