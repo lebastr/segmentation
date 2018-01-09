@@ -21,4 +21,4 @@ class CarDataset(Dataset):
         img = Img.open(img_path)
         ann = Img.open(ann_path)
 
-        return np.array(img), np.array(ann)
+        return np.float32(np.array(img).transpose([2,0,1])), np.int32(np.array(ann))

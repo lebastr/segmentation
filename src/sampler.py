@@ -27,7 +27,7 @@ class Sampler(object):
 
                 x_crop = int(np.random.uniform(0, self.xshape[1] - bound))
                 y_crop = int(np.random.uniform(0, self.xshape[2] - bound))
-                padding = (bound - self.net_in_size) / 2
+                padding = (bound - self.net_in_size) // 2
 
 #                print("bound: %d, padding: %d" % (bound, padding))
                 def augment_A(X):
@@ -70,26 +70,3 @@ class Sampler(object):
             target = crop_target(target)
 
             yield features, target
-
-                # for i in range(0, len(self.points), batch_size):
-                #     points = self.points[i:i + batch_size]
-                #
-                #     features_batch = []
-                #     target_batch = []
-                #
-                #     for p in points:
-                #         augment = make_augmentation()
-                #
-                #         X = self.get_features(p)
-                #         Y = self.get_target(p)
-                #
-                #         X = augment(X)
-                #         Y = augment(Y)
-                #         Y = crop_target(Y)
-                #         features_batch.append(X)
-                #         target_batch.append(Y)
-                #
-                #     features_batch = np.array(features_batch)
-                #     target_batch = np.array(target_batch)
-                #
-                #     yield features_batch, target_batch

@@ -39,7 +39,7 @@ def predict(net, in_size, out_size, X):
     return Y
 
 class Unet(nn.Module):
-    def __init__(self, vgg_pretrained=False):
+    def __init__(self, vgg_pretrained=False, n_classes=2):
         super(Unet, self).__init__()
 
         self.bn = nn.BatchNorm2d(3)
@@ -48,7 +48,7 @@ class Unet(nn.Module):
         self.encoder = Encoder(vgg)
 
         self.decoder = Decoder()
-        self.conv1x1 = nn.Conv2d(64, 1, 1)
+        self.conv1x1 = nn.Conv2d(64, n_classes, 1)
 
         initialize_weights(self.bn)
         initialize_weights(self.conv1x1)
@@ -59,8 +59,7 @@ class Unet(nn.Module):
 
     def forward(self, x):
         outs = self.encoder(self.bn(x))
-        y = self.conv1x1(self.decoder(*outs))
-        return F.sigmoid(y)
+        return self.conv1x1(self.decoder(*outs))
 
 class Encoder(nn.Module):
     def __init__(self, vgg):
