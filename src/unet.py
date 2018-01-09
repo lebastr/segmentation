@@ -34,7 +34,7 @@ def predict(net, in_size, out_size, X):
                 y = net(x)
 
             y = y.data.numpy()[0]
-            Y[:, u:u+out_size, v:v+out_size] = y
+            Y[:, u:u + out_size, v:v + out_size] = y
 
     return Y
 
