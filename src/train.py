@@ -132,12 +132,6 @@ def main():
                         default=116,
                         help="size of the image produced by network. Default: 116")
 
-
-    parser.add_argument("--tb_log_dir",
-                        type=str,
-                        required=True,
-                        help="Tensorboard log dir")
-
     parser.add_argument("--n_steps",
                         type=int,
                         default=0,
@@ -159,22 +153,6 @@ def main():
                         default="yes",
                         help="Fix vgg weights while learning")
 
-    parser.add_argument("--validation_freq",
-                        type=int,
-                        default=100,
-                        help="Validation freq. Default 100")
-
-    parser.add_argument("--validation_set_size",
-                        type=int,
-                        default=20,
-                        help="metrics will be averaged by validation_set_size. Default 20")
-
-    parser.add_argument("--channel",
-                        type=str,
-                        choices=['rgb', 'gray'],
-                        default="rgb",
-                        help="channel. Default: rgb")
-
     args = parser.parse_args()
 
     net_name = args.name
@@ -183,14 +161,10 @@ def main():
     batch_size = args.batch_size
     net_input_size = args.input_size
     net_output_size = args.output_size
-    tb_log_dir = args.tb_log_dir
     n_steps = args.n_steps
     dataset_dir = args.dataset_dir
     pretrained_vgg = args.pretrained_vgg == 'yes'
     fix_vgg = args.fix_vgg == 'yes'
-    validation_freq = args.validation_freq
-    validation_set_size = args.validation_set_size
-    channel = args.channel
 
     print("Load dataset")
     dataset = car_dataset.CarDataset(dataset_dir)
@@ -247,7 +221,7 @@ def main():
             loss.backward()
             optimizer.step()
 
-            print("step: %d, loss: %f, lr: %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
+            print("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
 
             if step % 1000 == 0:
                 network_manager.save()
