@@ -6,6 +6,8 @@ let
   self = pkgs.python36Packages;
   inherit (self) buildPythonPackage fetchPypi;
 
+  with_cuda = builtins.pathExists /run/current-system/sw/bin/nvidia-smi;
+
   be = stdenv.mkDerivation {
     name = "buildenv";
     buildInputs =
@@ -19,9 +21,11 @@ let
     numpy
     pillow
     pyqt5
-    pytorchWithCuda #WithoutCuda
-#    scikitimage
-#    scikitlearn
+
+    (if with_cuda then pytorchWithCuda else pytorch)
+
+#   scikitimage
+#   scikitlearn
     scipy
     shapely
     torchvision
