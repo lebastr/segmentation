@@ -21,15 +21,16 @@ import car_dataset
 
 class NManager(object):
     def __init__(self, root, name):
-        self.model_dir = root + "/" + name
-        self.model_state_path = self.model_dir + "/state.json"
+        self.model_dir = os.path.join(root, name)
+        self.model_state_path = os.path.join(self.model_dir, "state.json")
         self.name = name
 
         if not os.path.exists(self.model_dir):
-            os.mkdir(self.model_dir)
-            print("Net will be live in %s" % self.model_dir)
-            
+            os.makedirs(self.model_dir)
+            print("New net will live in %s" % self.model_dir)
+
         if os.path.exists(self.model_state_path):
+            print('Restoring model from', self.model_state_path)
             self.restore()
             self.registered = True
 
@@ -37,7 +38,7 @@ class NManager(object):
             self.registered = False
 
     def __last_model_path__(self):
-        return self.model_dir + "/model%d.pth" % self.iteration
+        return os.path.join(self.model_dir, "model%d.pth" % self.iteration)
 
     def registered(self):
         return self.registered
@@ -221,7 +222,7 @@ def main():
             loss.backward()
             optimizer.step()
 
-            print("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
+            tqdm.tqdm.write("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
 
             if step % 1000 == 0:
                 network_manager.save()
