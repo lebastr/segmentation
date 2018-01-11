@@ -1,14 +1,11 @@
 import argparse
-# import dataset as DS
+import copy
+import random
 import os
 import json
 import torch
-import unet as U
-import sampler as S
 import numpy as np
 import tqdm
-import copy
-import random
 
 from contextlib import contextmanager
 from torch import FloatTensor
@@ -17,9 +14,14 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim
 import torchvision.utils
-import car_dataset
 
 import PIL.Image as PImg
+
+import car_dataset
+import figure as fig
+import sampler as S
+import unet as U
+
 
 SAMPLE_DIR = 'samples'
 
@@ -214,6 +216,9 @@ def main():
 
     # logger = SummaryWriter(tb_log_dir + "/" + net_name)
 
+    loss_acc = fig.Accumulator(with_std=True)
+    log_fig = fig.Figure(accums={'loss': loss_acc}, title='Learning curves')
+
     if args.introspect_every is not None:
         os.makedirs(SAMPLE_DIR, exist_ok=True)
 
@@ -248,6 +253,12 @@ def main():
                 PImg.fromarray(pred_data).save(os.path.join(SAMPLE_DIR, '%05d_pred.png' % step))
 
             tqdm.tqdm.write("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
+
+            loss_acc.append(loss.data.cpu()[0])
+            if step % 50 == 0:
+                loss_acc.accumulate()
+                log_fig.plot_accums()
+                log_fig.draw()
 
             if step % 1000 == 0:
                 network_manager.save()

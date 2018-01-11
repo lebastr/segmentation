@@ -18,6 +18,7 @@ let
     matplotlib
     numpy
     pillow
+    pyqt5
     pytorchWithCuda #WithoutCuda
 #    scikitimage
 #    scikitlearn
