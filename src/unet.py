@@ -59,7 +59,7 @@ class Unet(nn.Module):
 
     def forward(self, x):
         outs = self.encoder(self.bn(x))
-        return self.conv1x1(self.decoder(*outs))
+        return F.softmax(self.conv1x1(self.decoder(*outs)), dim=1)
 
 class Encoder(nn.Module):
     def __init__(self, vgg):
