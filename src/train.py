@@ -164,6 +164,10 @@ def main():
                         type=int,
                         help="Dump picture and result every n-th batch")
 
+    parser.add_argument("--plot_loss_every",
+                        type=int,
+                        help="Dump picture and result every n-th batch")
+
     args = parser.parse_args()
 
     net_name = args.name
@@ -216,8 +220,11 @@ def main():
 
     # logger = SummaryWriter(tb_log_dir + "/" + net_name)
 
-    loss_acc = fig.Accumulator(with_std=True)
-    log_fig = fig.Figure(accums={'loss': loss_acc}, title='Learning curves')
+    loss_acc = None
+    log_fig = None
+    if args.plot_loss_every is not None:
+        loss_acc = fig.Accumulator(with_std=True)
+        log_fig = fig.Figure(accums={'loss': loss_acc}, title='Learning curves')
 
     if args.introspect_every is not None:
         os.makedirs(SAMPLE_DIR, exist_ok=True)
@@ -254,11 +261,13 @@ def main():
 
             tqdm.tqdm.write("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
 
-            loss_acc.append(loss.data.cpu()[0])
-            if step % 50 == 0:
-                loss_acc.accumulate()
-                log_fig.plot_accums()
-                log_fig.draw()
+            if args.plot_loss_every is not None:
+                loss_acc.append(loss.data.cpu()[0])
+
+                if step % args.plot_loss_every == 0:
+                    loss_acc.accumulate()
+                    log_fig.plot_accums()
+                    log_fig.draw()
 
             if step % 1000 == 0:
                 network_manager.save()
