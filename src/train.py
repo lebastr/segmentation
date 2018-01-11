@@ -185,7 +185,7 @@ def main():
         network_manager.register_net(net)
 
     print("Move to GPU")
-    # TODO net.cuda()
+    net.cuda()
 
     def get_features(x): return x[0]
     def get_target(x): return x[1][None,:,:]
@@ -206,13 +206,16 @@ def main():
 
     # logger = SummaryWriter(tb_log_dir + "/" + net_name)
 
+    if args.introspect_every is not None:
+        os.makedirs(SAMPLE_DIR, exist_ok=True)
+
     print("Start learning")
     with network_manager.session(n_steps) as (iterator, initial_step):
         for step in tqdm.tqdm(iterator, initial=initial_step):
             batch_features, batch_target = batch_generator(train_sampler, batch_size)
 
-            batch_features = Variable(torch.from_numpy(batch_features))   # TODO .cuda()
-            batch_target = Variable(torch.from_numpy(np.int64(batch_target[:,0,:,:])))       # TODO .cuda()
+            batch_features = Variable(torch.from_numpy(batch_features)).cuda()
+            batch_target = Variable(torch.from_numpy(np.int64(batch_target[:,0,:,:]))).cuda()
 
             predicted = net.forward(batch_features)
 
