@@ -189,7 +189,7 @@ def main():
         net = network_manager.get_net()
     else:
         print("Use pretrained weights %s" % str(pretrained_vgg))
-        net = U.Unet(vgg_pretrained=pretrained_vgg, n_classes=14)
+        net = U.Unet(vgg_pretrained=pretrained_vgg, n_classes=12)
         network_manager.register_net(net)
 
     print("Move to GPU")

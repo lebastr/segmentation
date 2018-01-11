@@ -58,8 +58,11 @@ class Unet(nn.Module):
             initialize_weights(self.encoder)
 
     def forward(self, x):
-        outs = self.encoder(self.bn(x))
-        return F.softmax(self.conv1x1(self.decoder(*outs)), dim=1)
+        encs = self.encoder(self.bn(x))
+        dec = self.decoder(*encs)
+        logits = self.conv1x1(dec)
+        probs = F.softmax(logits, dim=1)
+        return probs
 
 class Encoder(nn.Module):
     def __init__(self, vgg):
