@@ -1,5 +1,7 @@
 .idea
+*.pyc
 .ipython-profile
+.ipynb_checkpoints
 models
 samples
 __pycache__
