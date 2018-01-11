@@ -12,20 +12,17 @@ let
     ( with pkgs;
       with self;
     [
-    ffmpeg
     h5py
-    imageio
-    jupyter
+    ipython
+#    imageio
+    matplotlib
     numpy
-    opencv
     pillow
-    pytorchWithCuda
-    scikitimage
-    scikitlearn
+    pytorchWithCuda #WithoutCuda
+#    scikitimage
+#    scikitlearn
     scipy
     shapely
-    tensorflow
-    tkinter
     torchvision
     tqdm
     ]);

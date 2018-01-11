@@ -1,0 +1,5 @@
+.idea
+.ipython-profile
+models
+samples
+__pycache__

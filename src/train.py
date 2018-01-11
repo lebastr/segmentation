@@ -188,7 +188,7 @@ def main():
     if network_manager.registered:
         net = network_manager.get_net()
     else:
-        print("Use pretrained weihts %s" % str(pretrained_vgg))
+        print("Use pretrained weights %s" % str(pretrained_vgg))
         net = U.Unet(vgg_pretrained=pretrained_vgg, n_classes=14)
         network_manager.register_net(net)
 
