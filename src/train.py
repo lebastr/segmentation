@@ -246,18 +246,31 @@ def main():
             optimizer.step()
 
             if args.introspect_every is not None and step % args.introspect_every == 0:
+                # Just RGB image
                 img_data = (batch_features[0].data.cpu().permute(1, 2, 0).numpy().clip(0, 255)).astype(np.uint8)
-
-                tgt_data = batch_target[0].data.cpu().numpy()
+                # Three first channels of annotation rendered as R,G,B
+                target = batch_target[0]
+                tgt_data = target.data.cpu().numpy()
                 tgt_ch0 = tgt_data == 0
                 tgt_ch1 = tgt_data == 1
                 tgt_ch2 = tgt_data == 2
                 tgt_data = (255 * np.stack([tgt_ch0,tgt_ch1,tgt_ch2], axis=2)).astype(np.uint8)
-                pred_data = (predicted[0].data.cpu().permute(1, 2, 0).numpy()[:, :, 2] * 255).astype(np.uint8)
+
+                # Three first channels of prediction rendered as R,G,B
+                pred = predicted[0]
+                pred_data = (pred.data.cpu().permute(1, 2, 0).numpy()[:, :, :2] * 255).astype(np.uint8)
+
+                # Heatmap of correctness, more red -> more confidently incorrect, more green -> more confidently correct
+                pred_confidence, pred_class = pred.max(dim=0)
+                true_pred_mask = (pred_class == target).type_as(pred_confidence)
+                correct_preds = pred_confidence * true_pred_mask
+                incorrect_preds = pred_confidence * (1-true_pred_mask)
+                corr_pred_data = (torch.stack([incorrect_preds, correct_preds, torch.zeros_like(correct_preds)], dim=2)*255).data.cpu().numpy().astype(np.uint8)
 
                 PImg.fromarray(img_data).save(os.path.join(SAMPLE_DIR, '%05d_input.png' % step))
                 PImg.fromarray(tgt_data).save(os.path.join(SAMPLE_DIR, '%05d_tgt.png' % step))
                 PImg.fromarray(pred_data).save(os.path.join(SAMPLE_DIR, '%05d_pred.png' % step))
+                PImg.fromarray(corr_pred_data).save(os.path.join(SAMPLE_DIR, '%05d_corr.png' % step))
 
             tqdm.tqdm.write("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
 
