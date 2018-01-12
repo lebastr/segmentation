@@ -249,6 +249,11 @@ def main():
 
             logger.add_scalar('loss', loss.data[0], step)
 
+            pred_confidence, pred_class = predicted.max(dim=1)
+            true_pred_mask = (pred_class == batch_target).type_as(pred_confidence)
+            accuracy = true_pred_mask.data.mean()
+            logger.add_scalar('accuracy', accuracy, step)
+
             if args.introspect_every is not None and step % args.introspect_every == 0:
                 # Just RGB image
                 img_data = (batch_features[0].data.cpu().permute(1, 2, 0).numpy().clip(0, 255))
@@ -284,7 +289,7 @@ def main():
                 PImg.fromarray(corr_collage.astype(np.uint8)).save(os.path.join(SAMPLE_DIR, '%05d_collage.png' % step))
 
 
-            tqdm.tqdm.write("step: %d, loss: %f, lg(lr): %f" % (step, loss.data[0], np.log(learning_rate)/np.log(10)))
+            tqdm.tqdm.write("step: %d, loss: %4f, accuracy: %4f, lg(lr): %f" % (step, loss.data[0], accuracy, np.log(learning_rate)/np.log(10)))
 
             if args.plot_loss_every is not None:
                 loss_acc.append(loss.data.cpu()[0])
