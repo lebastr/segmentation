@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim
 import torchvision.utils
+from tensorboardX import SummaryWriter
 
 import PIL.Image as PImg
 
@@ -24,7 +25,7 @@ import unet as U
 
 ALPHA = 0.8  # transparency level of prediction mask on sample collage
 SAMPLE_DIR = 'samples'
-
+TB_DIR = 'tb'
 
 class NManager(object):
     def __init__(self, root, name):
@@ -169,6 +170,7 @@ def main():
                         type=int,
                         help="Dump picture and result every n-th batch")
 
+
     args = parser.parse_args()
 
     net_name = args.name
@@ -203,13 +205,12 @@ def main():
     net.cuda()
 
     def get_features(x): return x[0]
+
     def get_target(x): return x[1][None,:,:]
 
     train_sampler = S.Sampler(dataset, get_features, get_target,
                                     net_input_size, net_output_size, rotate_amplitude=5,
                                     random_crop=True, reflect=True)()
-
-#    next(train_sampler)
 
     if fix_vgg:
         parameters = list(net.bn.parameters()) + list(net.decoder.parameters()) + list(net.conv1x1.parameters())
@@ -219,7 +220,7 @@ def main():
     print("LR: %f" % learning_rate)
     optimizer = torch.optim.Adam(parameters, lr=learning_rate)
 
-    # logger = SummaryWriter(tb_log_dir + "/" + net_name)
+    logger = SummaryWriter(os.path.join(TB_DIR, net_name))
 
     loss_acc = None
     log_fig = None
@@ -245,6 +246,8 @@ def main():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            logger.add_scalar('loss', loss.data[0], step)
 
             if args.introspect_every is not None and step % args.introspect_every == 0:
                 # Just RGB image

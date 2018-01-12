@@ -8,6 +8,8 @@ let
 
   with_cuda = builtins.pathExists /run/current-system/sw/bin/nvidia-smi;
 
+  tensorboard_pytorch = self.callPackage ./tensorboard-pytorch.nix { };
+
   be = stdenv.mkDerivation {
     name = "buildenv";
     buildInputs =
@@ -23,6 +25,8 @@ let
     pyqt5
 
     (if with_cuda then pytorchWithCuda else pytorch)
+    tensorboard_pytorch
+    tensorflow   # tb server
 
 #   scikitimage
 #   scikitlearn
