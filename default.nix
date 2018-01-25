@@ -17,7 +17,8 @@ let
       with self;
     [
     h5py
-    ipython
+    jupyter
+#    ipython
 #    imageio
     matplotlib
     numpy
